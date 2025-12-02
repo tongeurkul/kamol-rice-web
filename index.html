@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Full SKU Support)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Real Stock)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -222,7 +222,7 @@
                 if(!user) return;
                 const refs = ['orders','production','inventory','shipping','customers','stockLogs','silos'].map(k => ({ key: k === 'stockLogs' ? 'logs' : k, q: query(collection(db, 'artifacts', appId, 'public', 'data', k), orderBy('createdAt', 'desc')) }));
                 
-                // --- Seed Logic Updated with specific Rice Types ---
+                // --- Seed Logic: REAL STOCK DATA ---
                 const checkAndSeed = async () => {
                     const batch = writeBatch(db);
                     let needsCommit = false;
@@ -239,24 +239,34 @@
                         }
                     }
 
-                    // Seed Inventory (Specific Rice Types)
+                    // Seed Inventory (Real Data from User)
                     const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
                     const snapInv = await getDocs(qInv);
                     if (snapInv.empty) {
-                        console.log("Seeding Inventory Items...");
+                        console.log("Seeding Real Inventory Data...");
                         const items = [
-                            { code: 'PD-JAS105', item: 'ข้าวเปลือกหอมมะลิ 105', category: 'ข้าวเปลือก', stock: 0, location: 'ฉาง 1' },
-                            { code: 'PD-RD6', item: 'ข้าวเปลือกเหนียว กข6', category: 'ข้าวเปลือก', stock: 0, location: 'ฉาง 2' },
-                            { code: 'PD-NP', item: 'ข้าวเปลือกเหนียวนาปรัง', category: 'ข้าวเปลือก', stock: 0, location: 'ฉาง 3' },
-                            { code: 'MR-JAS', item: 'ข้าวสารหอมมะลิ', category: 'ข้าวสาร', stock: 0, location: 'โกดังสินค้า' },
-                            { code: 'MR-STK', item: 'ข้าวสารเหนียว', category: 'ข้าวสาร', stock: 0, location: 'โกดังสินค้า' },
-                            { code: 'BR-JAS', item: 'ข้าวหักหอมมะลิ 105', category: 'ข้าวหัก/ปลาย', stock: 0, location: 'โซนข้าวหัก' },
-                            { code: 'BR-JAS-B', item: 'ข้าวหักหอมมะลิ B (Reject)', category: 'ข้าวหัก/ปลาย', stock: 0, location: 'โซนข้าวหัก' },
-                            { code: 'BR-STK', item: 'ข้าวหักเหนียว', category: 'ข้าวหัก/ปลาย', stock: 0, location: 'โซนข้าวหัก' },
-                            { code: 'BR-TIP', item: 'ข้าวปลาย', category: 'ข้าวหัก/ปลาย', stock: 0, location: 'โซนข้าวหัก' },
-                            { code: 'RJ-01', item: 'ข้าว Reject 1', category: 'Reject', stock: 0, location: 'โซนคัดออก' },
-                            { code: 'RJ-02', item: 'ข้าว Reject 2', category: 'Reject', stock: 0, location: 'โซนคัดออก' },
-                            { code: 'RJ-03', item: 'ข้าว Reject 3', category: 'Reject', stock: 0, location: 'โซนคัดออก' }
+                            // A Row
+                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
+                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
+                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
+                            
+                            // B Row
+                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
+                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
+                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
+                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
+                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
+                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
+                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
+                            
+                            // C Row
+                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
+                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
+                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
+                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
+                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
+                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
+                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' }
                         ];
                         items.forEach(it => {
                             const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
@@ -272,6 +282,15 @@
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
+                    
+                    // Sort Inventory by Code (A1, A2, B1...) for easier reading
+                    if(key === 'inventory') {
+                         items = items.sort((a,b) => {
+                             if(!a.code) return 1; if(!b.code) return -1;
+                             return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
+                         });
+                    }
+                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
@@ -380,11 +399,11 @@
                     {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
                 ];
                 
+                // Fixed: Added 'code' field to Inventory modal
                 if(modal.type === 'inventory') return [
-                    {name:'code',label:'รหัสสินค้า (SKU)',placeholder:'เช่น JAS-105'},
+                    {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1'},
                     {name:'item',label:'ชื่อสินค้า'},
-                    // Updated Categories to include new rice types
-                    {name:'category',type:'select',label:'หมวด',options:['ข้าวเปลือก','ข้าวสาร','ข้าวหัก/ปลาย','Reject/อื่นๆ']},
+                    {name:'category',type:'select',label:'หมวด',options:['ข้าวสาร','ข้าวเปลือก','ข้าวหัก/ปลาย','Reject/อื่นๆ']},
                     {name:'stock',type:'number',label:'คงเหลือ'},
                     {name:'location',label:'ที่เก็บ'}
                 ];
@@ -412,10 +431,10 @@
                 switch(currentMenu) {
                     case 'orders': return [{h:'วันที่',k:'date'},{h:'เลขที่',k:'displayId'},{h:'ลูกค้า',k:'customer'},{h:'สินค้า',k:'product'},{h:'จำนวน (กก.)',k:'quantity'},{h:'ยอดเงิน',k:'amount'},{h:'สถานะ',k:'status'}]; 
                     case 'inventory': return [
-                        {h:'รหัส',k:'code'},
+                        {h:'ตำแหน่ง/รหัส',k:'code'},
                         {h:'สินค้า',k:'item'},
                         {h:'หมวด',k:'category'},
-                        {h:'คงเหลือ',k:'stock'},
+                        {h:'คงเหลือ (กก.)',k:'stock'},
                         {h:'ที่เก็บ',k:'location'}
                     ];
                     case 'production': return [
@@ -520,7 +539,7 @@
                                             <div>
                                                 <h3 className="font-bold text-red-800">สินค้าใกล้หมด ({lowStock.length})</h3>
                                                 <div className="flex flex-wrap gap-2 mt-2">
-                                                    {lowStock.map(i => <span key={i.id} className="text-xs bg-white px-2 py-1 rounded border border-red-100 text-red-600 font-medium">{i.item}</span>)}
+                                                    {lowStock.map(i => <span key={i.id} className="text-xs bg-white px-2 py-1 rounded border border-red-100 text-red-600 font-medium">{i.item} ({parseNumber(i.stock)})</span>)}
                                                 </div>
                                             </div>
                                         </div>
@@ -619,7 +638,7 @@
                                                                 <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>{item.status}</span></td>
                                                             </>}
                                                             {menu === 'inventory' && <>
-                                                                <td className="px-6 py-4 font-medium text-primary-600">{item.code || '-'}</td>
+                                                                <td className="px-6 py-4 font-bold text-primary-700">{item.code || '-'}</td>
                                                                 <td className="px-6 py-4 font-medium text-gray-800">{item.item}</td>
                                                                 <td className="px-6 py-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500">{item.category}</span></td>
                                                                 <td className="px-6 py-4"><span className={`font-bold ${parseNumber(item.stock)<LOW_STOCK_THRESHOLD?'text-red-600':'text-gray-800'}`}>{parseNumber(item.stock).toLocaleString()}</span></td>
