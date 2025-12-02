@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Advanced Sort)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Fixed Sorting)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -42,7 +42,6 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Sarabun', sans-serif; -webkit-font-smoothing: antialiased; }
-        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -240,7 +239,7 @@
                             needsCommit = true;
                         }
                     }
-                    // Seed Inventory Logic (Keep existing check)
+                    // Seed Inventory Logic
                     const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
                     const snapInv = await getDocs(qInv);
                     if (snapInv.empty) {
@@ -278,6 +277,7 @@
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
                     if(key === 'inventory') {
+                         // Sort inventory by Code (A1, A2, B1...)
                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
@@ -409,11 +409,11 @@
                         } else if (sortOption === 'location') {
                             const valA = a.location || '';
                             const valB = b.location || '';
-                            return valA.localeCompare(valB, undefined, {numeric: true, sensitivity: 'base'});
+                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); // Use 'th' for Thai sort
                         } else if (sortOption === 'stock_desc') {
                             return parseNumber(b.stock) - parseNumber(a.stock);
                         } else if (sortOption === 'name') {
-                            return a.item.localeCompare(b.item);
+                            return a.item.localeCompare(b.item, 'th');
                         }
                         return 0;
                     });
@@ -680,10 +680,10 @@
                                                 <>
                                                     <select value={sortOption} onChange={e=>setSortOption(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
                                                         <option value="default">เรียงตาม: ค่าเริ่มต้น</option>
-                                                        <option value="code">รหัส (A-Z)</option>
-                                                        <option value="location">ที่เก็บ (A-Z)</option>
-                                                        <option value="stock_desc">คงเหลือ (มาก-น้อย)</option>
-                                                        <option value="name">ชื่อสินค้า (ก-ฮ)</option>
+                                                        <option value="code">🏷️ เรียงตามรหัส (Code)</option>
+                                                        <option value="location">📍 เรียงตามที่เก็บ (Location)</option>
+                                                        <option value="stock_desc">📉 เรียงตามคงเหลือ (มาก-น้อย)</option>
+                                                        <option value="name">📝 เรียงตามชื่อ (ก-ฮ)</option>
                                                     </select>
                                                     <div className="h-6 w-px bg-gray-200 mx-1"></div>
                                                 </>
