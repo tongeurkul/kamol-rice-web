@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Real Stock)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Smart Filter)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -70,7 +70,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -206,7 +206,11 @@
             const [modal, setModal] = useState({ open:false, type:null, item:null });
             const [toast, setToast] = useState(null);
             const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+            
+            // Filter & Sort States
             const [filterStatus, setFilterStatus] = useState('all');
+            const [filterCategory, setFilterCategory] = useState('all'); // New Category Filter
+            const [sortOption, setSortOption] = useState('default'); // New Sort Option
             const [startDate, setStartDate] = useState('');
             const [endDate, setEndDate] = useState('');
             
@@ -222,15 +226,15 @@
                 if(!user) return;
                 const refs = ['orders','production','inventory','shipping','customers','stockLogs','silos'].map(k => ({ key: k === 'stockLogs' ? 'logs' : k, q: query(collection(db, 'artifacts', appId, 'public', 'data', k), orderBy('createdAt', 'desc')) }));
                 
-                // --- Seed Logic: REAL STOCK DATA ---
-                const checkAndSeed = async () => {
+                // Seed Silos (Auto-check 13 tanks)
+                const checkAndSeedSilos = async () => {
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'silos'));
+                    const snap = await getDocs(q);
+                    
+                    const existingNumbers = snap.docs.map(d => d.data().number);
                     const batch = writeBatch(db);
                     let needsCommit = false;
 
-                    // Seed Silos (13 Tanks)
-                    const qSilos = query(collection(db, 'artifacts', appId, 'public', 'data', 'silos'));
-                    const snapSilos = await getDocs(qSilos);
-                    const existingNumbers = snapSilos.docs.map(d => d.data().number);
                     for(let i=1; i<=13; i++) {
                         if (!existingNumbers.includes(i)) {
                             const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'silos'));
@@ -239,58 +243,15 @@
                         }
                     }
 
-                    // Seed Inventory (Real Data from User)
-                    const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                    const snapInv = await getDocs(qInv);
-                    if (snapInv.empty) {
-                        console.log("Seeding Real Inventory Data...");
-                        const items = [
-                            // A Row
-                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
-                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
-                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
-                            
-                            // B Row
-                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
-                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
-                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
-                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
-                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
-                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
-                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
-                            
-                            // C Row
-                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
-                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
-                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
-                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
-                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
-                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
-                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' }
-                        ];
-                        items.forEach(it => {
-                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
-                        });
-                        needsCommit = true;
+                    if (needsCommit) {
+                        await batch.commit();
                     }
-
-                    if (needsCommit) await batch.commit();
                 };
-                checkAndSeed();
+                checkAndSeedSilos();
 
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
-                    
-                    // Sort Inventory by Code (A1, A2, B1...) for easier reading
-                    if(key === 'inventory') {
-                         items = items.sort((a,b) => {
-                             if(!a.code) return 1; if(!b.code) return -1;
-                             return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
-                         });
-                    }
-                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
@@ -316,6 +277,15 @@
                 const mix={}; data.orders.forEach(o=>{ if(o.status==='สำเร็จ') mix[o.product]=(mix[o.product]||0)+parseNumber(o.amount) });
                 setProductMixData(Object.keys(mix).map((k,i)=>({name:k, value:mix[k], color:COLORS[i%COLORS.length]})));
             }, [data.orders]);
+
+            // Reset filters when menu changes
+            useEffect(() => {
+                setFilterStatus('all');
+                setFilterCategory('all');
+                setSortOption('default');
+                setStartDate('');
+                setEndDate('');
+            }, [menu]);
 
             // Handlers
             const handleSave = async (e) => {
@@ -380,9 +350,51 @@
             const sales = data.orders.filter(o => o.status === 'สำเร็จ').reduce((s, o) => s + parseNumber(o.amount), 0);
 
             const getFilteredData = (list) => {
-                let res = list;
+                let res = [...list]; // Copy array
+
+                // Search
+                if (searchTerm) {
+                    const lowerTerm = searchTerm.toLowerCase();
+                    res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
+                }
+                
+                // Status Filter
                 if(filterStatus !== 'all') res = res.filter(i => (i.status || i.type) === filterStatus);
-                if(startDate && endDate) res = res.filter(i => isDateInRange(i.date || (i.createdAt?.toDate ? i.createdAt.toDate() : new Date()), startDate, endDate));
+                
+                // Date Filter
+                if(startDate && endDate) {
+                    const dateKey = menu === 'stockLogs' ? 'createdAt' : (menu === 'production' ? 'date' : 'date'); // Adjust key based on menu if needed
+                    res = res.filter(i => isDateInRange(i[dateKey] || i.createdAt, startDate, endDate));
+                }
+
+                // Category Filter (Inventory)
+                if (menu === 'inventory' && filterCategory !== 'all') {
+                    res = res.filter(i => i.category === filterCategory);
+                }
+
+                // Sorting
+                if (menu === 'inventory' && sortOption !== 'default') {
+                    res.sort((a, b) => {
+                        if (sortOption === 'location') {
+                            const codeA = a.code || a.location || '';
+                            const codeB = b.code || b.location || '';
+                            return codeA.localeCompare(codeB, undefined, {numeric: true, sensitivity: 'base'});
+                        } else if (sortOption === 'stock_desc') {
+                            return parseNumber(b.stock) - parseNumber(a.stock);
+                        } else if (sortOption === 'name') {
+                            return a.item.localeCompare(b.item);
+                        }
+                        return 0;
+                    });
+                } else if (menu === 'inventory' && sortOption === 'default') {
+                    // Default sort by Code/Location
+                    res.sort((a, b) => {
+                        const codeA = a.code || a.location || '';
+                        const codeB = b.code || b.location || '';
+                        return codeA.localeCompare(codeB, undefined, {numeric: true, sensitivity: 'base'});
+                    });
+                }
+
                 return res;
             };
 
@@ -399,7 +411,6 @@
                     {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
                 ];
                 
-                // Fixed: Added 'code' field to Inventory modal
                 if(modal.type === 'inventory') return [
                     {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1'},
                     {name:'item',label:'ชื่อสินค้า'},
@@ -602,15 +613,50 @@
                                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center justify-between">
                                         <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
                                             <Filter size={18} className="text-gray-400 min-w-[18px]"/>
-                                            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600"><option value="all">สถานะทั้งหมด</option>{['สำเร็จ','กำลังส่ง','กำลังผลิต','รอเริ่ม','IN','OUT'].map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                            <div className="h-6 w-px bg-gray-200 mx-2"></div>
+                                            
+                                            {/* Category Filter for Inventory */}
+                                            {menu === 'inventory' && (
+                                                <>
+                                                    <select value={filterCategory} onChange={e=>setFilterCategory(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
+                                                        <option value="all">ทุกหมวดหมู่</option>
+                                                        <option value="ข้าวเปลือก">ข้าวเปลือก</option>
+                                                        <option value="ข้าวสาร">ข้าวสาร</option>
+                                                        <option value="ข้าวหัก/ปลาย">ข้าวหัก/ปลาย</option>
+                                                        <option value="Reject/อื่นๆ">Reject/อื่นๆ</option>
+                                                    </select>
+                                                    <div className="h-6 w-px bg-gray-200 mx-1"></div>
+                                                </>
+                                            )}
+                                            
+                                            {/* Sort Options for Inventory */}
+                                            {menu === 'inventory' && (
+                                                <>
+                                                    <select value={sortOption} onChange={e=>setSortOption(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
+                                                        <option value="default">เรียงตาม: ค่าเริ่มต้น</option>
+                                                        <option value="location">ตำแหน่ง (A-Z)</option>
+                                                        <option value="stock_desc">คงเหลือ (มาก-น้อย)</option>
+                                                        <option value="name">ชื่อสินค้า (ก-ฮ)</option>
+                                                    </select>
+                                                    <div className="h-6 w-px bg-gray-200 mx-1"></div>
+                                                </>
+                                            )}
+
+                                            {/* Status Filter (Existing) */}
+                                            {['orders', 'production'].includes(menu) && (
+                                                <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
+                                                    <option value="all">สถานะทั้งหมด</option>
+                                                    {['สำเร็จ','กำลังส่ง','กำลังผลิต','รอเริ่ม','IN','OUT'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                            )}
+
+                                            <div className="hidden md:block h-6 w-px bg-gray-200 mx-2"></div>
                                             <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 px-3 focus:ring-2 focus:ring-primary-100 text-gray-600"/>
                                             <span className="text-gray-300">-</span>
                                             <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 px-3 focus:ring-2 focus:ring-primary-100 text-gray-600"/>
                                         </div>
                                         <div className="flex gap-2 w-full md:w-auto">
                                             <button onClick={()=>downloadCSV(getFilteredData(data[menu==='stockLogs'?'logs':menu]), menu)} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-sm font-medium transition-colors"><Download size={16}/> Export</button>
-                                            <button onClick={()=>{setFilterStatus('all');setStartDate('');setEndDate('')}} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-gray-500 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors border border-gray-200"><RefreshCcw size={16}/> Reset</button>
+                                            <button onClick={()=>{setFilterStatus('all');setFilterCategory('all');setSortOption('default');setStartDate('');setEndDate('')}} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-gray-500 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors border border-gray-200"><RefreshCcw size={16}/> Reset</button>
                                         </div>
                                     </div>
 
