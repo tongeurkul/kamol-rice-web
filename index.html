@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Customer Focus)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Add Order Details)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,7 +68,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -150,7 +150,9 @@
             const w = window.open('', '_blank');
             const qty = parseNumber(order.quantity);
             const amt = parseNumber(order.amount);
-            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}</style></head><body><h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2><p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p><p><strong>ลูกค้า:</strong> ${order.customer}</p><table><thead><tr><th>รายการ</th><th class="right">จำนวน</th><th class="right">ยอดเงิน</th></tr></thead><tbody><tr><td>${order.product}</td><td class="right">${qty.toLocaleString()}</td><td class="right">${amt.toLocaleString()}</td></tr></tbody><tfoot><tr><td colspan="2" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(amt)}</strong></td></tr></tfoot></table><div style="margin-top:50px;display:flex;justify-content:space-between;text-align:center;"><div>__________________<br>ผู้รับของ</div><div>__________________<br>ผู้ส่งของ</div></div><script>window.onload=()=>window.print();<\/script></body></html>`);
+            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}</style></head><body><h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2><p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p><p><strong>ลูกค้า:</strong> ${order.customer}</p><table><thead><tr><th>รายการ</th><th class="right">จำนวน</th><th class="right">ยอดเงิน</th></tr></thead><tbody><tr><td>${order.product}</td><td class="right">${qty.toLocaleString()}</td><td class="right">${amt.toLocaleString()}</td></tr></tbody><tfoot><tr><td colspan="2" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(amt)}</strong></td></tr></tfoot></table>
+            <div style="margin-top:20px; font-size:14px; color:#555;"><strong>หมายเหตุ:</strong> ${order.details || '-'}</div>
+            <div style="margin-top:50px;display:flex;justify-content:space-between;text-align:center;"><div>__________________<br>ผู้รับของ</div><div>__________________<br>ผู้ส่งของ</div></div><script>window.onload=()=>window.print();<\/script></body></html>`);
             w.document.close();
         };
 
@@ -411,7 +413,7 @@
                         } else if (sortOption === 'location') {
                             const valA = a.location || '';
                             const valB = b.location || '';
-                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); // Use 'th' for Thai sort
+                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); 
                         } else if (sortOption === 'stock_desc') {
                             return parseNumber(b.stock) - parseNumber(a.stock);
                         } else if (sortOption === 'name') {
@@ -432,7 +434,16 @@
 
             // Modal Fields
             const getModalFields = () => {
-                if(modal.type === 'orders') return [{name:'date',type:'date',label:'วันที่'},{name:'customer',label:'ลูกค้า'},{name:'product',type:'select',label:'สินค้า',options:data.inventory.map(i=>({value:i.item,label:`${i.item} (${i.stock})`}))},{name:'quantity',type:'number',label:'จำนวน'},{name:'amount',type:'number',label:'ยอดเงิน'},{name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}];
+                if(modal.type === 'orders') return [
+                    {name:'date',type:'date',label:'วันที่'},
+                    {name:'customer',label:'ลูกค้า'},
+                    {name:'product',type:'select',label:'สินค้า',options:data.inventory.map(i=>({value:i.item,label:`${i.item} (${i.stock})`}))},
+                    {name:'quantity',type:'number',label:'จำนวน'},
+                    {name:'amount',type:'number',label:'ยอดเงิน'},
+                    // Fixed: Added 'details' textarea field
+                    {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
+                    {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
+                ];
                 
                 if(modal.type === 'production') return [
                     {name:'startDateTime',type:'datetime-local',label:'เริ่มผลิต (วัน-เวลา)'},
@@ -508,7 +519,7 @@
                                     </div>
                                     
                                     <div className="flex-1">
-                                        {/* Fixed: Customer is main title for orders */}
+                                        {/* Customer is main title for orders */}
                                         <h3 className="font-bold text-gray-800 text-lg line-clamp-1">
                                             {type === 'orders' ? item.customer : (item.item || item.product || item.name || item.rice)}
                                         </h3>
@@ -524,6 +535,7 @@
                                             <div className="mt-1">
                                                 <div className="text-sm text-gray-600">{item.product}</div>
                                                 <div className="text-xl font-bold text-emerald-600 mt-1">{formatCurrency(parseNumber(item.amount))}</div>
+                                                {item.details && <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded border border-gray-100 flex items-start gap-1"><FileText size={12} className="mt-0.5"/> <span className="line-clamp-2">{item.details}</span></div>}
                                             </div>
                                         )}
                                         {type==='production' && (
@@ -606,6 +618,9 @@
                                         </select>
                                         <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
                                     </div>
+                                    // Added Textarea logic
+                                    :f.type==='textarea'?
+                                    <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
                                     :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
                                 </div>
                             ))}
