@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Order Dates Updated)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Auto Clean)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -282,13 +282,28 @@
 
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
-                    if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
+                    
+                    // --- Auto-Clean: Remove leading dots from location ---
                     if(key === 'inventory') {
+                         items.forEach(item => {
+                             if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
+                                 const cleanLocation = item.location.trim().replace(/^\.+/, ''); // Remove all leading dots
+                                 // Update DB silently
+                                 updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
+                                 // Update local item for immediate UI fix
+                                 item.location = cleanLocation;
+                             }
+                         });
+
+                         // Sort logic
                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
                          });
                     }
+                    
+                    if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
+                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
