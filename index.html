@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Beautiful UI)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Customer Focus)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -245,7 +245,32 @@
                     const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
                     const snapInv = await getDocs(qInv);
                     if (snapInv.empty) {
-                        // ... (Seeding logic same as before, shortened for brevity)
+                        console.log("Seeding Real Inventory Data...");
+                        const items = [
+                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
+                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
+                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
+                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
+                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
+                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
+                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
+                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
+                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
+                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
+                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
+                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
+                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
+                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
+                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
+                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
+                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' },
+                            { code: 'RJ-JAS-02', item: 'ข้าว Reject 2 (มะลิ)', category: 'Reject/อื่นๆ', stock: 0, location: 'รอระบุ' }
+                        ];
+                        items.forEach(it => {
+                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
+                        });
+                        needsCommit = true;
                     }
                     if (needsCommit) await batch.commit();
                 };
@@ -386,7 +411,7 @@
                         } else if (sortOption === 'location') {
                             const valA = a.location || '';
                             const valB = b.location || '';
-                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); 
+                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); // Use 'th' for Thai sort
                         } else if (sortOption === 'stock_desc') {
                             return parseNumber(b.stock) - parseNumber(a.stock);
                         } else if (sortOption === 'name') {
@@ -449,7 +474,7 @@
                 switch(currentMenu) {
                     case 'orders': return [{h:'วันที่',k:'date'},{h:'เลขที่',k:'displayId'},{h:'ลูกค้า',k:'customer'},{h:'สินค้า',k:'product'},{h:'จำนวน (กก.)',k:'quantity'},{h:'ยอดเงิน',k:'amount'},{h:'สถานะ',k:'status'}]; 
                     case 'inventory': return [
-                        {h:'รหัส',k:'code'},
+                        {h:'ตำแหน่ง/รหัส',k:'code'},
                         {h:'สินค้า',k:'item'},
                         {h:'หมวด',k:'category'},
                         {h:'คงเหลือ (กก.)',k:'stock'},
@@ -479,10 +504,15 @@
                                         {type==='inventory' && <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-md font-bold">{item.code || '-'}</span>}
                                         {type==='inventory' && <span className={`text-xs px-2 py-1 rounded-full ${item.category==='ข้าวสาร'?'bg-emerald-100 text-emerald-700':item.category==='ข้าวเปลือก'?'bg-yellow-100 text-yellow-700':'bg-blue-50 text-blue-700'}`}>{item.category}</span>}
                                         {type==='orders' && <span className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
+                                        {type==='production' && <span className="bg-purple-50 text-purple-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
                                     </div>
                                     
                                     <div className="flex-1">
-                                        <h3 className="font-bold text-gray-800 text-lg line-clamp-1">{item.item || item.product || item.name}</h3>
+                                        {/* Fixed: Customer is main title for orders */}
+                                        <h3 className="font-bold text-gray-800 text-lg line-clamp-1">
+                                            {type === 'orders' ? item.customer : (item.item || item.product || item.name || item.rice)}
+                                        </h3>
+                                        
                                         {type==='inventory' && (
                                             <div className="flex items-center gap-2 mt-2">
                                                 <Box size={16} className="text-gray-400"/>
@@ -492,8 +522,15 @@
                                         )}
                                         {type==='orders' && (
                                             <div className="mt-1">
-                                                <div className="text-sm text-gray-600">{item.customer}</div>
+                                                <div className="text-sm text-gray-600">{item.product}</div>
                                                 <div className="text-xl font-bold text-emerald-600 mt-1">{formatCurrency(parseNumber(item.amount))}</div>
+                                            </div>
+                                        )}
+                                        {type==='production' && (
+                                            <div className="mt-1">
+                                                <div className="text-sm text-gray-600 flex items-center gap-1"><Clock size={14}/> {formatDateTime(item.startDateTime)}</div>
+                                                <div className="text-xl font-bold text-blue-600 mt-1">{parseNumber(item.amount).toLocaleString()} กก.</div>
+                                                <div className="text-xs text-gray-500 mt-1 bg-gray-100 inline-block px-2 py-0.5 rounded">{item.stage || 'ไม่ระบุ'}</div>
                                             </div>
                                         )}
                                         {type==='customers' && (
@@ -507,6 +544,9 @@
                                     <div className="border-t border-gray-100 mt-4 pt-3 flex justify-between items-center">
                                         {type==='inventory' && <div className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {item.location}</div>}
                                         {type==='orders' && <div className="text-xs text-gray-400">{formatDate(item.date)}</div>}
+                                        {type==='production' && (
+                                             <span className={`px-2 py-0.5 rounded text-xs ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-blue-50 text-blue-700'}`}>{item.status}</span>
+                                        )}
                                         
                                         <div className="flex gap-1 ml-auto">
                                              {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-50 rounded-lg"><Printer size={14}/></button>}
