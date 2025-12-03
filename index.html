@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Add Order Details)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Order Dates Updated)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,7 +68,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -150,7 +150,9 @@
             const w = window.open('', '_blank');
             const qty = parseNumber(order.quantity);
             const amt = parseNumber(order.amount);
-            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}</style></head><body><h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2><p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p><p><strong>ลูกค้า:</strong> ${order.customer}</p><table><thead><tr><th>รายการ</th><th class="right">จำนวน</th><th class="right">ยอดเงิน</th></tr></thead><tbody><tr><td>${order.product}</td><td class="right">${qty.toLocaleString()}</td><td class="right">${amt.toLocaleString()}</td></tr></tbody><tfoot><tr><td colspan="2" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(amt)}</strong></td></tr></tfoot></table>
+            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}</style></head><body><h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2><p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p><p><strong>ลูกค้า:</strong> ${order.customer}</p>
+            <p><strong>กำหนดส่ง:</strong> ${order.dueDate ? formatDate(order.dueDate) : '-'}</p>
+            <table><thead><tr><th>รายการ</th><th class="right">จำนวน</th><th class="right">ยอดเงิน</th></tr></thead><tbody><tr><td>${order.product}</td><td class="right">${qty.toLocaleString()}</td><td class="right">${amt.toLocaleString()}</td></tr></tbody><tfoot><tr><td colspan="2" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(amt)}</strong></td></tr></tfoot></table>
             <div style="margin-top:20px; font-size:14px; color:#555;"><strong>หมายเหตุ:</strong> ${order.details || '-'}</div>
             <div style="margin-top:50px;display:flex;justify-content:space-between;text-align:center;"><div>__________________<br>ผู้รับของ</div><div>__________________<br>ผู้ส่งของ</div></div><script>window.onload=()=>window.print();<\/script></body></html>`);
             w.document.close();
@@ -434,13 +436,14 @@
 
             // Modal Fields
             const getModalFields = () => {
+                // Fixed: Added 'dueDate' field to Orders modal
                 if(modal.type === 'orders') return [
-                    {name:'date',type:'date',label:'วันที่'},
+                    {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
+                    {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
                     {name:'customer',label:'ลูกค้า'},
                     {name:'product',type:'select',label:'สินค้า',options:data.inventory.map(i=>({value:i.item,label:`${i.item} (${i.stock})`}))},
                     {name:'quantity',type:'number',label:'จำนวน'},
                     {name:'amount',type:'number',label:'ยอดเงิน'},
-                    // Fixed: Added 'details' textarea field
                     {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
                     {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
                 ];
@@ -483,7 +486,17 @@
 
             const getColumns = (currentMenu) => {
                 switch(currentMenu) {
-                    case 'orders': return [{h:'วันที่',k:'date'},{h:'เลขที่',k:'displayId'},{h:'ลูกค้า',k:'customer'},{h:'สินค้า',k:'product'},{h:'จำนวน (กก.)',k:'quantity'},{h:'ยอดเงิน',k:'amount'},{h:'สถานะ',k:'status'}]; 
+                    // Fixed: Added 'dueDate' column to Orders table
+                    case 'orders': return [
+                        {h:'วันที่สั่ง',k:'date',render:r=>formatDate(r.date)},
+                        {h:'กำหนดส่ง',k:'dueDate',render:r=>r.dueDate ? formatDate(r.dueDate) : '-'},
+                        {h:'เลขที่',k:'displayId'},
+                        {h:'ลูกค้า',k:'customer'},
+                        {h:'สินค้า',k:'product'},
+                        {h:'จำนวน (กก.)',k:'quantity'},
+                        {h:'ยอดเงิน',k:'amount'},
+                        {h:'สถานะ',k:'status'}
+                    ]; 
                     case 'inventory': return [
                         {h:'ตำแหน่ง/รหัส',k:'code'},
                         {h:'สินค้า',k:'item'},
@@ -519,7 +532,6 @@
                                     </div>
                                     
                                     <div className="flex-1">
-                                        {/* Customer is main title for orders */}
                                         <h3 className="font-bold text-gray-800 text-lg line-clamp-1">
                                             {type === 'orders' ? item.customer : (item.item || item.product || item.name || item.rice)}
                                         </h3>
@@ -555,7 +567,15 @@
 
                                     <div className="border-t border-gray-100 mt-4 pt-3 flex justify-between items-center">
                                         {type==='inventory' && <div className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {item.location}</div>}
-                                        {type==='orders' && <div className="text-xs text-gray-400">{formatDate(item.date)}</div>}
+                                        
+                                        {/* Fixed: Card view shows both Order and Due date */}
+                                        {type==='orders' && (
+                                            <div className="text-xs text-gray-400 flex flex-col">
+                                                <span>สั่ง: {formatDate(item.date)}</span>
+                                                {item.dueDate && <span className="text-orange-400">ส่ง: {formatDate(item.dueDate)}</span>}
+                                            </div>
+                                        )}
+                                        
                                         {type==='production' && (
                                              <span className={`px-2 py-0.5 rounded text-xs ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-blue-50 text-blue-700'}`}>{item.status}</span>
                                         )}
