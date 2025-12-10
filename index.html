@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Show Order Details)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Multi-Item Orders)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,13 +68,13 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
         } from 'recharts';
 
-        // --- Firebase Config (rm-kamol) ---
+        // --- Firebase Config ---
         const firebaseConfig = {
             apiKey: "AIzaSyATgHULn71bBjjcx5WU_HJ5EUlvxyr5iy0",
             authDomain: "rm-kamol.firebaseapp.com",
@@ -134,7 +134,9 @@
             const csvRows = [headers.join(',')];
             for (const row of data) {
                 const values = headers.map(header => {
-                    const escaped = ('' + (row[header] || '')).replace(/"/g, '\\"');
+                    let val = row[header];
+                    if (Array.isArray(val)) val = val.map(v => `${v.product} (${v.quantity})`).join('; ');
+                    const escaped = ('' + (val || '')).replace(/"/g, '\\"');
                     return `"${escaped}"`;
                 });
                 csvRows.push(values.join(','));
@@ -148,11 +150,35 @@
 
         const printOrder = (order) => {
             const w = window.open('', '_blank');
-            const qty = parseNumber(order.quantity);
-            const amt = parseNumber(order.amount);
-            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}</style></head><body><h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2><p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p><p><strong>ลูกค้า:</strong> ${order.customer}</p>
+            const items = order.items || [{product: order.product, quantity: order.quantity, amount: order.amount}]; // Fallback
+            const total = parseNumber(order.amount || items.reduce((s, i) => s + parseNumber(i.amount), 0));
+            
+            let itemRows = items.map((item, idx) => {
+                const qty = parseNumber(item.quantity);
+                const amt = parseNumber(item.amount);
+                const unitPrice = qty > 0 ? amt / qty : 0;
+                return `<tr>
+                    <td class="text-center">${idx + 1}</td>
+                    <td>${item.product}</td>
+                    <td class="right">${qty.toLocaleString()} กก.</td>
+                    <td class="right">${unitPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                    <td class="right">${amt.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                </tr>`;
+            }).join('');
+
+            // Fill empty rows for A4
+            for(let i=items.length; i<8; i++) {
+                itemRows += '<tr style="height:30px"><td></td><td></td><td></td><td></td><td></td></tr>';
+            }
+
+            w.document.write(`<html><head><title>ใบเสร็จ ${order.displayId}</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;margin:20px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f0f0f0;}.right{text-align:right;}.text-center{text-align:center;}</style></head><body>
+            <h2 style="text-align:center">ใบเสร็จรับเงิน / ใบส่งของ</h2>
+            <p><strong>เลขที่:</strong> ${order.displayId} <span style="float:right"><strong>วันที่:</strong> ${formatDate(order.date)}</span></p>
+            <p><strong>ลูกค้า:</strong> ${order.customer}</p>
             <p><strong>กำหนดส่ง:</strong> ${order.dueDate ? formatDate(order.dueDate) : '-'}</p>
-            <table><thead><tr><th>รายการ</th><th class="right">จำนวน</th><th class="right">ยอดเงิน</th></tr></thead><tbody><tr><td>${order.product}</td><td class="right">${qty.toLocaleString()}</td><td class="right">${amt.toLocaleString()}</td></tr></tbody><tfoot><tr><td colspan="2" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(amt)}</strong></td></tr></tfoot></table>
+            <table><thead><tr><th style="width:50px">ลำดับ</th><th>รายการ</th><th class="right">จำนวน</th><th class="right">ราคา/หน่วย</th><th class="right">รวมเงิน</th></tr></thead>
+            <tbody>${itemRows}</tbody>
+            <tfoot><tr><td colspan="4" class="right"><strong>รวมสุทธิ</strong></td><td class="right"><strong>${formatCurrency(total)}</strong></td></tr></tfoot></table>
             <div style="margin-top:20px; font-size:14px; color:#555;"><strong>หมายเหตุ:</strong> ${order.details || '-'}</div>
             <div style="margin-top:50px;display:flex;justify-content:space-between;text-align:center;"><div>__________________<br>ผู้รับของ</div><div>__________________<br>ผู้ส่งของ</div></div><script>window.onload=()=>window.print();<\/script></body></html>`);
             w.document.close();
@@ -167,11 +193,13 @@
             </div>
         );
 
-        const Modal = ({ isOpen, onClose, title, children }) => {
+        // --- Modified Modal for Multi-Items ---
+        const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
             if (!isOpen) return null;
+            const sizeClass = size === 'lg' ? 'max-w-2xl' : 'max-w-md';
             return (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200">
+                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClass} max-h-[90vh] overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200`}>
                         <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                             <h3 className="font-bold text-lg text-gray-800">{title}</h3>
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 bg-white p-1 rounded-full shadow-sm hover:shadow transition-all"><X size={20}/></button>
@@ -223,6 +251,9 @@
             const [salesTrendData, setSalesTrendData] = useState([]);
             const [productMixData, setProductMixData] = useState([]);
 
+            // Multi-item Order State
+            const [orderItems, setOrderItems] = useState([]);
+
             useEffect(() => {
                 signInAnonymously(auth).catch(e => console.error(e)); 
                 return onAuthStateChanged(auth, u => setUser(u));
@@ -245,37 +276,6 @@
                             needsCommit = true;
                         }
                     }
-                    // Seed Inventory Logic
-                    const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                    const snapInv = await getDocs(qInv);
-                    if (snapInv.empty) {
-                        console.log("Seeding Real Inventory Data...");
-                        const items = [
-                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
-                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
-                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
-                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
-                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
-                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
-                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
-                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
-                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
-                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
-                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
-                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
-                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
-                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
-                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
-                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
-                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' },
-                            { code: 'RJ-JAS-02', item: 'ข้าว Reject 2 (มะลิ)', category: 'Reject/อื่นๆ', stock: 0, location: 'รอระบุ' }
-                        ];
-                        items.forEach(it => {
-                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
-                        });
-                        needsCommit = true;
-                    }
                     if (needsCommit) await batch.commit();
                 };
                 checkAndSeedSilos();
@@ -283,27 +283,21 @@
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
                     
-                    // --- Auto-Clean: Remove leading dots from location ---
+                    // Auto-Clean Dots
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
-                                 const cleanLocation = item.location.trim().replace(/^\.+/, ''); // Remove all leading dots
-                                 // Update DB silently
+                                 const cleanLocation = item.location.trim().replace(/^\.+/, '');
                                  updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
-                                 // Update local item for immediate UI fix
                                  item.location = cleanLocation;
                              }
                          });
-
-                         // Sort logic
                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
                          });
                     }
-                    
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
-                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
@@ -324,13 +318,47 @@
                     months.push({key:k, name: d.toLocaleDateString('th-TH',{month:'short'})}); 
                     trendMap[k]=0; 
                 }
-                data.orders.forEach(o => { if(o.status==='สำเร็จ') { const k = o.date ? o.date.substring(0,7) : ''; if(trendMap[k]!==undefined) trendMap[k]+=parseNumber(o.amount); }});
+                data.orders.forEach(o => { 
+                    if(o.status==='สำเร็จ') { 
+                        const k = o.date ? o.date.substring(0,7) : ''; 
+                        if(trendMap[k]!==undefined) trendMap[k]+=parseNumber(o.amount); 
+                    }
+                });
                 setSalesTrendData(months.map(m=>({name:m.name, sales:trendMap[m.key]})));
-                const mix={}; data.orders.forEach(o=>{ if(o.status==='สำเร็จ') mix[o.product]=(mix[o.product]||0)+parseNumber(o.amount) });
+                
+                const mix={}; 
+                data.orders.forEach(o=>{ 
+                    if(o.status==='สำเร็จ') {
+                        // Handle multi-item mix
+                        const items = o.items || [{product: o.product, amount: o.amount}];
+                        items.forEach(i => {
+                            mix[i.product]=(mix[i.product]||0)+parseNumber(i.amount);
+                        });
+                    }
+                });
                 setProductMixData(Object.keys(mix).map((k,i)=>({name:k, value:mix[k], color:COLORS[i%COLORS.length]})));
             }, [data.orders]);
 
-            // Reset filters when menu changes
+            useEffect(() => {
+                // Initialize Order Items when modal opens
+                if (modal.open && modal.type === 'orders') {
+                    if (modal.item && modal.item.items) {
+                        setOrderItems(modal.item.items);
+                    } else if (modal.item) {
+                        // Legacy single item to array
+                        setOrderItems([{
+                            product: modal.item.product,
+                            quantity: modal.item.quantity,
+                            amount: modal.item.amount
+                        }]);
+                    } else {
+                        // New Order
+                        setOrderItems([{ product: '', quantity: '', amount: '' }]);
+                    }
+                }
+            }, [modal.open, modal.type, modal.item]);
+
+            // Reset filters
             useEffect(() => {
                 setFilterStatus('all');
                 setFilterCategory('all');
@@ -344,6 +372,21 @@
             const handleSave = async (e) => {
                 e.preventDefault(); const val = Object.fromEntries(new FormData(e.target).entries());
                 setToast({ msg: 'กำลังบันทึก...', type: 'info' });
+                
+                // Multi-item Order Validation
+                if (modal.type === 'orders') {
+                    const validItems = orderItems.filter(i => i.product && i.quantity > 0);
+                    if (validItems.length === 0) {
+                        alert("กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
+                        setToast(null);
+                        return;
+                    }
+                    val.items = validItems;
+                    val.product = validItems.length === 1 ? validItems[0].product : `(หลายรายการ: ${validItems.length})`;
+                    val.quantity = validItems.reduce((s, i) => s + parseNumber(i.quantity), 0);
+                    val.amount = validItems.reduce((s, i) => s + parseNumber(i.amount), 0);
+                }
+
                 try {
                     const colName = modal.type === 'logs' ? 'stockLogs' : modal.type; 
                     const isEdit = !!modal.item;
@@ -365,85 +408,73 @@
                             else if (modal.type === 'shipping') { finalData.displayId = `#SHP-${idSuffix}`; finalData.status = 'กำลังส่ง'; }
                             else if (modal.type === 'customers') finalData.displayId = `#CUS-${idSuffix}`;
                         }
-                        if (modal.type === 'orders') {
-                            const invItem = data.inventory.find(i => i.item === val.product);
-                            if (!invItem) throw new Error("ไม่พบสินค้านี้ในคลัง");
+
+                        // --- STOCK LOGIC START ---
+                        const updateInventoryStock = async (itemName, change, reason, refId) => {
+                            const invItem = data.inventory.find(i => i.item === itemName);
+                            if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
                             const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
                             const invDoc = await t.get(invRef);
-                            const currentStock = parseNumber(invDoc.data().stock);
-                            const newQty = parseNumber(val.quantity);
-                            const isSuccess = val.status === 'สำเร็จ';
+                            const current = parseNumber(invDoc.data().stock);
+                            if (current + change < 0) throw new Error(`สต็อก ${itemName} ไม่พอ (ขาด ${Math.abs(current + change)})`);
+                            t.update(invRef, { stock: current + change });
                             
+                            const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
+                            t.set(logRef, {
+                                item: itemName,
+                                change: change,
+                                type: change > 0 ? 'IN' : 'OUT',
+                                refId: refId,
+                                reason: reason,
+                                createdAt: serverTimestamp()
+                            });
+                        };
+
+                        if (modal.type === 'orders') {
+                            const newItems = val.items;
+                            const isSuccess = val.status === 'สำเร็จ';
                             let oldData = null;
-                            if(isEdit) {
+                            if (isEdit) {
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modal.item.id));
                                 oldData = oldDoc.data();
                             }
 
-                            let stockChange = 0;
-                            let newStockDeducted = false;
-                            let logReason = "";
-
-                            if (!isEdit) {
-                                // New Order
-                                if (isSuccess) {
-                                    if (currentStock < newQty) throw new Error("สต็อกไม่พอ");
-                                    stockChange = -newQty;
-                                    newStockDeducted = true;
-                                    logReason = `ตัดสต็อก (ขาย) ${finalData.displayId}`;
+                            // If switching FROM Deducted TO Not-Deducted (e.g. Cancelled)
+                            if (oldData && oldData.stockDeducted && !isSuccess) {
+                                const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
+                                for (const item of oldItems) {
+                                    await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
                                 }
-                            } else {
-                                // Edit
-                                const wasDeducted = oldData.stockDeducted || false;
-                                const oldQty = parseNumber(oldData.quantity);
-
-                                if (!wasDeducted && isSuccess) {
-                                    // Pending -> Success
-                                    if (currentStock < newQty) throw new Error("สต็อกไม่พอ");
-                                    stockChange = -newQty;
-                                    newStockDeducted = true;
-                                    logReason = `ตัดสต็อก (ยืนยันขาย) ${finalData.displayId}`;
-                                } else if (wasDeducted && !isSuccess) {
-                                    // Success -> Pending/Cancel
-                                    stockChange = oldQty;
-                                    newStockDeducted = false;
-                                    logReason = `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`;
-                                } else if (wasDeducted && isSuccess) {
-                                    // Success -> Success (Qty change)
-                                    const diff = oldQty - newQty;
-                                    if (currentStock + diff < 0) throw new Error("สต็อกไม่พอ");
-                                    stockChange = diff;
-                                    newStockDeducted = true;
-                                    if(diff !== 0) logReason = `ปรับปรุงยอด ${finalData.displayId}`;
-                                } else {
-                                    newStockDeducted = false;
+                                finalData.stockDeducted = false;
+                            }
+                            // If switching FROM Not-Deducted TO Deducted (e.g. Pending -> Success)
+                            else if ((!oldData || !oldData.stockDeducted) && isSuccess) {
+                                for (const item of newItems) {
+                                    await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ขาย) ${finalData.displayId}`, finalData.displayId);
                                 }
+                                finalData.stockDeducted = true;
                             }
-
-                            if (stockChange !== 0) {
-                                t.update(invRef, { stock: currentStock + stockChange });
-                                // Add Log
-                                const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
-                                t.set(logRef, {
-                                    item: val.product,
-                                    change: stockChange,
-                                    type: stockChange > 0 ? 'IN' : 'OUT',
-                                    refId: finalData.displayId,
-                                    reason: logReason,
-                                    createdAt: serverTimestamp()
-                                });
+                            // If Deducted -> Deducted (Update Qty)
+                            else if (oldData && oldData.stockDeducted && isSuccess) {
+                                // Revert Old
+                                const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
+                                for (const item of oldItems) {
+                                    await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
+                                }
+                                // Deduct New
+                                for (const item of newItems) {
+                                    await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
+                                }
+                                finalData.stockDeducted = true;
                             }
-                            finalData.stockDeducted = newStockDeducted;
                         }
+                        
                         if (modal.type === 'production' && isEdit && val.status === 'สำเร็จ' && !modal.item.stockAdded) {
-                            const invItem = data.inventory.find(i => i.item === val.rice);
-                            if (invItem) {
-                                const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
-                                const invDoc = await t.get(invRef);
-                                t.update(invRef, { stock: parseNumber(invDoc.data().stock) + parseNumber(val.amount) });
-                                finalData.stockAdded = true;
-                            }
+                            await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
+                            finalData.stockAdded = true;
                         }
+                        // --- STOCK LOGIC END ---
+
                         if (isEdit) t.update(doc(db, 'artifacts', appId, 'public', 'data', colName, modal.item.id), finalData);
                         else t.set(doc(collection(db, 'artifacts', appId, 'public', 'data', colName)), finalData);
                     });
@@ -461,61 +492,37 @@
 
             const getFilteredData = (list) => {
                 let res = [...list]; 
-
                 if (searchTerm) {
                     const lowerTerm = searchTerm.toLowerCase();
                     res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
                 }
-                
                 if(filterStatus !== 'all') res = res.filter(i => (i.status || i.type) === filterStatus);
-                
                 if(startDate && endDate) {
                     const dateKey = menu === 'stockLogs' ? 'createdAt' : (menu === 'production' ? 'date' : 'date'); 
                     res = res.filter(i => isDateInRange(i[dateKey] || i.createdAt, startDate, endDate));
                 }
-
-                if (menu === 'inventory' && filterCategory !== 'all') {
-                    res = res.filter(i => i.category === filterCategory);
-                }
-
+                if (menu === 'inventory' && filterCategory !== 'all') res = res.filter(i => i.category === filterCategory);
                 if (menu === 'inventory' && sortOption !== 'default') {
                     res.sort((a, b) => {
-                        if (sortOption === 'code') {
-                            const valA = a.code || '';
-                            const valB = b.code || '';
-                            return valA.localeCompare(valB, undefined, {numeric: true, sensitivity: 'base'});
-                        } else if (sortOption === 'location') {
-                            const valA = a.location || '';
-                            const valB = b.location || '';
-                            return valA.localeCompare(valB, 'th', {numeric: true, sensitivity: 'base'}); 
-                        } else if (sortOption === 'stock_desc') {
-                            return parseNumber(b.stock) - parseNumber(a.stock);
-                        } else if (sortOption === 'name') {
-                            return a.item.localeCompare(b.item, 'th');
-                        }
+                        if (sortOption === 'code') return (a.code||'').localeCompare(b.code||'', undefined, {numeric: true, sensitivity: 'base'});
+                        if (sortOption === 'location') return (a.location||'').localeCompare(b.location||'', 'th', {numeric: true, sensitivity: 'base'}); 
+                        if (sortOption === 'stock_desc') return parseNumber(b.stock) - parseNumber(a.stock);
+                        if (sortOption === 'name') return a.item.localeCompare(b.item, 'th');
                         return 0;
                     });
                 } else if (menu === 'inventory' && sortOption === 'default') {
-                    res.sort((a, b) => {
-                        const codeA = a.code || a.location || '';
-                        const codeB = b.code || b.location || '';
-                        return codeA.localeCompare(codeB, undefined, {numeric: true, sensitivity: 'base'});
-                    });
+                    res.sort((a, b) => (a.code||a.location||'').localeCompare(b.code||b.location||'', undefined, {numeric: true, sensitivity: 'base'}));
                 }
-
                 return res;
             };
 
             // Modal Fields
             const getModalFields = () => {
-                // Fixed: Added 'dueDate' field to Orders modal
                 if(modal.type === 'orders') return [
                     {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
                     {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
                     {name:'customer',label:'ลูกค้า'},
-                    {name:'product',type:'select',label:'สินค้า',options:data.inventory.map(i=>({value:i.item,label:`${i.item} (${i.stock})`}))},
-                    {name:'quantity',type:'number',label:'จำนวน'},
-                    {name:'amount',type:'number',label:'ยอดเงิน'},
+                    // Multi-item section handles products
                     {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
                     {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
                 ];
@@ -558,15 +565,21 @@
 
             const getColumns = (currentMenu) => {
                 switch(currentMenu) {
-                    // Fixed: Added 'dueDate' column to Orders table
                     case 'orders': return [
                         {h:'วันที่สั่ง',k:'date',render:r=>formatDate(r.date)},
                         {h:'กำหนดส่ง',k:'dueDate',render:r=>r.dueDate ? formatDate(r.dueDate) : '-'},
                         {h:'เลขที่',k:'displayId'},
                         {h:'ลูกค้า',k:'customer'},
-                        {h:'สินค้า',k:'product'},
-                        {h:'จำนวน (กก.)',k:'quantity',render:r=>parseNumber(r.quantity).toLocaleString()},
-                        {h:'ยอดเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
+                        {h:'รายการสินค้า',k:'product', render:r => (
+                            <div className="max-w-xs">
+                                {r.items && r.items.length > 0 ? (
+                                    <ul className="list-disc list-inside text-xs">
+                                        {r.items.map((i,idx) => <li key={idx}>{i.product} ({parseNumber(i.quantity).toLocaleString()} กก.)</li>)}
+                                    </ul>
+                                ) : r.product}
+                            </div>
+                        )},
+                        {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
                         {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 truncate max-w-xs block" title={r.details}>{r.details || '-'}</span>},
                         {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
                     ]; 
@@ -587,6 +600,15 @@
                     case 'customers': return [{h:'ชื่อ',k:'name'},{h:'โทร',k:'phone'},{h:'ที่อยู่',k:'location'}];
                     default: return [{h:'เวลา',k:'createdAt'},{h:'สินค้า',k:'item'},{h:'ประเภท',k:'type'},{h:'จำนวน',k:'change'},{h:'สาเหตุ',k:'reason'}];
                 }
+            };
+
+            // --- Multi-Item Handlers ---
+            const addOrderItem = () => setOrderItems([...orderItems, {product: '', quantity: '', amount: ''}]);
+            const removeOrderItem = (index) => setOrderItems(orderItems.filter((_, i) => i !== index));
+            const updateOrderItem = (index, field, value) => {
+                const newItems = [...orderItems];
+                newItems[index][field] = value;
+                setOrderItems(newItems);
             };
 
             // --- Card View Component ---
@@ -618,7 +640,11 @@
                                         )}
                                         {type==='orders' && (
                                             <div className="mt-1">
-                                                <div className="text-sm text-gray-600">{item.product}</div>
+                                                <div className="text-sm text-gray-600">
+                                                    {item.items && item.items.length > 0 ? (
+                                                        <span className="italic">{item.items.length} รายการ: {item.items[0].product}...</span>
+                                                    ) : item.product}
+                                                </div>
                                                 <div className="text-xl font-bold text-emerald-600 mt-1">{formatCurrency(parseNumber(item.amount))}</div>
                                                 {item.details && <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded border border-gray-100 flex items-start gap-1"><FileText size={12} className="mt-0.5"/> <span className="line-clamp-2">{item.details}</span></div>}
                                             </div>
@@ -641,7 +667,6 @@
                                     <div className="border-t border-gray-100 mt-4 pt-3 flex justify-between items-center">
                                         {type==='inventory' && <div className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {item.location}</div>}
                                         
-                                        {/* Fixed: Card view shows both Order and Due date */}
                                         {type==='orders' && (
                                             <div className="text-xs text-gray-400 flex flex-col">
                                                 <span>สั่ง: {formatDate(item.date)}</span>
@@ -680,24 +705,10 @@
                                 {list.length === 0 ? <tr><td colSpan={cols.length+1} className="p-8 text-center text-gray-400">ไม่มีข้อมูล</td></tr> :
                                 list.map(item => (
                                     <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
-                                        {menu === 'orders' ? (
-                                             <>
-                                                <td className="px-6 py-4 text-gray-600">{formatDate(item.date)}</td>
-                                                <td className="px-6 py-4 text-gray-600">{item.dueDate ? formatDate(item.dueDate) : '-'}</td>
-                                                <td className="px-6 py-4 font-medium text-primary-600">{item.displayId}</td>
-                                                <td className="px-6 py-4 text-gray-800 font-medium">{item.customer}</td>
-                                                <td className="px-6 py-4 text-gray-600">{item.product}</td>
-                                                <td className="px-6 py-4 font-medium text-gray-800">{parseNumber(item.quantity).toLocaleString()}</td>
-                                                <td className="px-6 py-4 font-bold text-gray-800">{formatCurrency(parseNumber(item.amount))}</td>
-                                                <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title={item.details}>{item.details || '-'}</td>
-                                                <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>{item.status}</span></td>
-                                             </>
-                                        ) : (
-                                            cols.map((c, i) => <td key={i} className="px-6 py-4 text-gray-700">{c.render ? c.render(item) : item[c.k]}</td>)
-                                        )}
+                                        {cols.map((c, i) => <td key={i} className="px-6 py-4 text-gray-700 align-top">{c.render ? c.render(item) : item[c.k]}</td>)}
                                         
                                         {menu!=='logs' && (
-                                            <td className="px-6 py-4 text-right">
+                                            <td className="px-6 py-4 text-right align-top">
                                                 <div className="flex items-center justify-end gap-1">
                                                     {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><Printer size={16}/></button>}
                                                     <button onClick={()=>setModal({open:true, type, item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
@@ -716,24 +727,63 @@
             return (
                 <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
                     {toast && <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)} />}
-                    <Modal isOpen={modal.open} onClose={()=>setModal({open:false})} title={modal.item?(modal.type==='silo'?'แก้ไขสถานะไซโล':'แก้ไขรายการ'):'เพิ่มรายการใหม่'}>
+                    <Modal isOpen={modal.open} onClose={()=>setModal({open:false})} title={modal.item?(modal.type==='silo'?'แก้ไขสถานะไซโล':'แก้ไขรายการ'):'เพิ่มรายการใหม่'} size={modal.type === 'orders' ? 'lg' : 'md'}>
                         <form onSubmit={handleSave} className="space-y-4">
                             {getModalFields().map(f => (
                                 <div key={f.name}>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                                    {f.type==='select'?
-                                    <div className="relative">
-                                        <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
-                                            {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
-                                        </select>
-                                        <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
-                                    </div>
-                                    // Added Textarea logic
-                                    :f.type==='textarea'?
-                                    <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
-                                    :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
+                                    {f.name === 'product' || f.name === 'quantity' || f.name === 'amount' ? null : ( // Hide old single fields for Orders
+                                        <>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                                            {f.type==='select'?
+                                            <div className="relative">
+                                                <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
+                                                    {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+                                                </select>
+                                                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
+                                            </div>
+                                            :f.type==='textarea'?
+                                            <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
+                                            :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
+                                        </>
+                                    )}
                                 </div>
                             ))}
+
+                            {/* Multi-Item Order Section */}
+                            {modal.type === 'orders' && (
+                                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <label className="block text-sm font-medium text-gray-700">รายการสินค้า</label>
+                                        <button type="button" onClick={addOrderItem} className="text-xs flex items-center gap-1 text-primary-600 font-bold hover:text-primary-700"><PlusCircle size={14}/> เพิ่มสินค้า</button>
+                                    </div>
+                                    <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                        {orderItems.map((item, idx) => (
+                                            <div key={idx} className="flex gap-2 items-end">
+                                                <div className="flex-1">
+                                                    <label className="text-xs text-gray-500">สินค้า</label>
+                                                    <select value={item.product} onChange={e=>updateOrderItem(idx, 'product', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                                        <option value="">-- เลือก --</option>
+                                                        {data.inventory.map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {i.stock})</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="w-20">
+                                                    <label className="text-xs text-gray-500">จำนวน</label>
+                                                    <input type="number" value={item.quantity} onChange={e=>updateOrderItem(idx, 'quantity', e.target.value)} className="w-full p-2 border rounded text-sm text-right" placeholder="0"/>
+                                                </div>
+                                                <div className="w-24">
+                                                    <label className="text-xs text-gray-500">ยอดเงิน</label>
+                                                    <input type="number" value={item.amount} onChange={e=>updateOrderItem(idx, 'amount', e.target.value)} className="w-full p-2 border rounded text-sm text-right" placeholder="0"/>
+                                                </div>
+                                                <button type="button" onClick={()=>removeOrderItem(idx)} className="p-2 text-red-400 hover:text-red-600 mb-0.5"><MinusCircle size={18}/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 text-right text-sm font-bold text-gray-700 border-t pt-2">
+                                        รวมเงิน: {formatCurrency(orderItems.reduce((s, i) => s + parseNumber(i.amount), 0))}
+                                    </div>
+                                </div>
+                            )}
+
                             <button className="w-full bg-primary-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-primary-700 hover:shadow-xl transition-all mt-4 flex justify-center items-center gap-2">
                                 <Save size={20} /> บันทึกข้อมูล
                             </button>
