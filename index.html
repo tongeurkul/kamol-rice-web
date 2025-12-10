@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Auto Clean)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Stock Logic Updated)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -371,12 +371,69 @@
                             const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
                             const invDoc = await t.get(invRef);
                             const currentStock = parseNumber(invDoc.data().stock);
-                            const qty = parseNumber(val.quantity);
-                            if (!isEdit && val.status !== 'ยกเลิก') {
-                                if (currentStock < qty) throw new Error("สต็อกไม่พอ");
-                                t.update(invRef, { stock: currentStock - qty });
-                                finalData.stockDeducted = true;
+                            const newQty = parseNumber(val.quantity);
+                            const isSuccess = val.status === 'สำเร็จ';
+                            
+                            let oldData = null;
+                            if(isEdit) {
+                                const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modal.item.id));
+                                oldData = oldDoc.data();
                             }
+
+                            let stockChange = 0;
+                            let newStockDeducted = false;
+                            let logReason = "";
+
+                            if (!isEdit) {
+                                // New Order
+                                if (isSuccess) {
+                                    if (currentStock < newQty) throw new Error("สต็อกไม่พอ");
+                                    stockChange = -newQty;
+                                    newStockDeducted = true;
+                                    logReason = `ตัดสต็อก (ขาย) ${finalData.displayId}`;
+                                }
+                            } else {
+                                // Edit
+                                const wasDeducted = oldData.stockDeducted || false;
+                                const oldQty = parseNumber(oldData.quantity);
+
+                                if (!wasDeducted && isSuccess) {
+                                    // Pending -> Success
+                                    if (currentStock < newQty) throw new Error("สต็อกไม่พอ");
+                                    stockChange = -newQty;
+                                    newStockDeducted = true;
+                                    logReason = `ตัดสต็อก (ยืนยันขาย) ${finalData.displayId}`;
+                                } else if (wasDeducted && !isSuccess) {
+                                    // Success -> Pending/Cancel
+                                    stockChange = oldQty;
+                                    newStockDeducted = false;
+                                    logReason = `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`;
+                                } else if (wasDeducted && isSuccess) {
+                                    // Success -> Success (Qty change)
+                                    const diff = oldQty - newQty;
+                                    if (currentStock + diff < 0) throw new Error("สต็อกไม่พอ");
+                                    stockChange = diff;
+                                    newStockDeducted = true;
+                                    if(diff !== 0) logReason = `ปรับปรุงยอด ${finalData.displayId}`;
+                                } else {
+                                    newStockDeducted = false;
+                                }
+                            }
+
+                            if (stockChange !== 0) {
+                                t.update(invRef, { stock: currentStock + stockChange });
+                                // Add Log
+                                const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
+                                t.set(logRef, {
+                                    item: val.product,
+                                    change: stockChange,
+                                    type: stockChange > 0 ? 'IN' : 'OUT',
+                                    refId: finalData.displayId,
+                                    reason: logReason,
+                                    createdAt: serverTimestamp()
+                                });
+                            }
+                            finalData.stockDeducted = newStockDeducted;
                         }
                         if (modal.type === 'production' && isEdit && val.status === 'สำเร็จ' && !modal.item.stockAdded) {
                             const invItem = data.inventory.find(i => i.item === val.rice);
