@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Multi-Item Orders)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Unified Stock)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -74,7 +74,7 @@
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
         } from 'recharts';
 
-        // --- Firebase Config ---
+        // --- Firebase Config (rm-kamol) ---
         const firebaseConfig = {
             apiKey: "AIzaSyATgHULn71bBjjcx5WU_HJ5EUlvxyr5iy0",
             authDomain: "rm-kamol.firebaseapp.com",
@@ -130,7 +130,7 @@
 
         const downloadCSV = (data, filename) => {
             if (!data || !data.length) return alert("ไม่มีข้อมูลให้ดาวน์โหลด");
-            const headers = Object.keys(data[0]).filter(k => !['id','createdAt','updatedAt'].includes(k));
+            const headers = Object.keys(data[0]).filter(k => !['id','createdAt','updatedAt', 'isSilo'].includes(k));
             const csvRows = [headers.join(',')];
             for (const row of data) {
                 const values = headers.map(header => {
@@ -150,7 +150,7 @@
 
         const printOrder = (order) => {
             const w = window.open('', '_blank');
-            const items = order.items || [{product: order.product, quantity: order.quantity, amount: order.amount}]; // Fallback
+            const items = order.items || [{product: order.product, quantity: order.quantity, amount: order.amount}]; 
             const total = parseNumber(order.amount || items.reduce((s, i) => s + parseNumber(i.amount), 0));
             
             let itemRows = items.map((item, idx) => {
@@ -166,7 +166,6 @@
                 </tr>`;
             }).join('');
 
-            // Fill empty rows for A4
             for(let i=items.length; i<8; i++) {
                 itemRows += '<tr style="height:30px"><td></td><td></td><td></td><td></td><td></td></tr>';
             }
@@ -193,7 +192,6 @@
             </div>
         );
 
-        // --- Modified Modal for Multi-Items ---
         const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
             if (!isOpen) return null;
             const sizeClass = size === 'lg' ? 'max-w-2xl' : 'max-w-md';
@@ -245,13 +243,11 @@
             const [startDate, setStartDate] = useState('');
             const [endDate, setEndDate] = useState('');
             
-            // View Mode State (List or Grid)
+            // View Mode State
             const [viewMode, setViewMode] = useState('list');
 
             const [salesTrendData, setSalesTrendData] = useState([]);
             const [productMixData, setProductMixData] = useState([]);
-
-            // Multi-item Order State
             const [orderItems, setOrderItems] = useState([]);
 
             useEffect(() => {
@@ -283,7 +279,6 @@
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
                     let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
                     
-                    // Auto-Clean Dots
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
@@ -329,7 +324,6 @@
                 const mix={}; 
                 data.orders.forEach(o=>{ 
                     if(o.status==='สำเร็จ') {
-                        // Handle multi-item mix
                         const items = o.items || [{product: o.product, amount: o.amount}];
                         items.forEach(i => {
                             mix[i.product]=(mix[i.product]||0)+parseNumber(i.amount);
@@ -340,19 +334,16 @@
             }, [data.orders]);
 
             useEffect(() => {
-                // Initialize Order Items when modal opens
                 if (modal.open && modal.type === 'orders') {
                     if (modal.item && modal.item.items) {
                         setOrderItems(modal.item.items);
                     } else if (modal.item) {
-                        // Legacy single item to array
                         setOrderItems([{
                             product: modal.item.product,
                             quantity: modal.item.quantity,
                             amount: modal.item.amount
                         }]);
                     } else {
-                        // New Order
                         setOrderItems([{ product: '', quantity: '', amount: '' }]);
                     }
                 }
@@ -373,7 +364,6 @@
                 e.preventDefault(); const val = Object.fromEntries(new FormData(e.target).entries());
                 setToast({ msg: 'กำลังบันทึก...', type: 'info' });
                 
-                // Multi-item Order Validation
                 if (modal.type === 'orders') {
                     const validItems = orderItems.filter(i => i.product && i.quantity > 0);
                     if (validItems.length === 0) {
@@ -409,16 +399,36 @@
                             else if (modal.type === 'customers') finalData.displayId = `#CUS-${idSuffix}`;
                         }
 
-                        // --- STOCK LOGIC START ---
                         const updateInventoryStock = async (itemName, change, reason, refId) => {
-                            const invItem = data.inventory.find(i => i.item === itemName);
-                            if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
-                            const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
-                            const invDoc = await t.get(invRef);
-                            const current = parseNumber(invDoc.data().stock);
-                            if (current + change < 0) throw new Error(`สต็อก ${itemName} ไม่พอ (ขาด ${Math.abs(current + change)})`);
-                            t.update(invRef, { stock: current + change });
-                            
+                            const siloMatch = itemName.match(/^SILO-(\d+):\s+(.+)$/);
+
+                            if (siloMatch) {
+                                const siloNum = parseInt(siloMatch[1]);
+                                const targetSilo = data.silos.find(s => s.number === siloNum);
+                                if (!targetSilo) throw new Error(`ไม่พบข้อมูลไซโล #${siloNum}`);
+                                
+                                const siloRef = doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id);
+                                const siloDoc = await t.get(siloRef);
+                                
+                                if (!siloDoc.exists()) throw new Error(`ไม่พบเอกสารไซโล #${siloNum}`);
+                                
+                                const current = parseNumber(siloDoc.data().amount);
+                                if (current + change < 0) throw new Error(`ข้าวในไซโล #${siloNum} ไม่พอ (ขาด ${Math.abs(current + change)})`);
+                                
+                                t.update(siloRef, { amount: current + change });
+                            } else {
+                                const invItem = data.inventory.find(i => i.item === itemName);
+                                if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
+                                
+                                const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
+                                const invDoc = await t.get(invRef);
+                                
+                                const current = parseNumber(invDoc.data().stock);
+                                if (current + change < 0) throw new Error(`สต็อก ${itemName} ไม่พอ (ขาด ${Math.abs(current + change)})`);
+                                
+                                t.update(invRef, { stock: current + change });
+                            }
+
                             const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
                             t.set(logRef, {
                                 item: itemName,
@@ -439,7 +449,6 @@
                                 oldData = oldDoc.data();
                             }
 
-                            // If switching FROM Deducted TO Not-Deducted (e.g. Cancelled)
                             if (oldData && oldData.stockDeducted && !isSuccess) {
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
                                 for (const item of oldItems) {
@@ -447,21 +456,17 @@
                                 }
                                 finalData.stockDeducted = false;
                             }
-                            // If switching FROM Not-Deducted TO Deducted (e.g. Pending -> Success)
                             else if ((!oldData || !oldData.stockDeducted) && isSuccess) {
                                 for (const item of newItems) {
                                     await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ขาย) ${finalData.displayId}`, finalData.displayId);
                                 }
                                 finalData.stockDeducted = true;
                             }
-                            // If Deducted -> Deducted (Update Qty)
                             else if (oldData && oldData.stockDeducted && isSuccess) {
-                                // Revert Old
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
                                 for (const item of oldItems) {
                                     await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
                                 }
-                                // Deduct New
                                 for (const item of newItems) {
                                     await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
                                 }
@@ -473,7 +478,6 @@
                             await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
                             finalData.stockAdded = true;
                         }
-                        // --- STOCK LOGIC END ---
 
                         if (isEdit) t.update(doc(db, 'artifacts', appId, 'public', 'data', colName, modal.item.id), finalData);
                         else t.set(doc(collection(db, 'artifacts', appId, 'public', 'data', colName)), finalData);
@@ -516,13 +520,11 @@
                 return res;
             };
 
-            // Modal Fields
             const getModalFields = () => {
                 if(modal.type === 'orders') return [
                     {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
                     {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
                     {name:'customer',label:'ลูกค้า'},
-                    // Multi-item section handles products
                     {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
                     {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
                 ];
@@ -602,7 +604,6 @@
                 }
             };
 
-            // --- Multi-Item Handlers ---
             const addOrderItem = () => setOrderItems([...orderItems, {product: '', quantity: '', amount: ''}]);
             const removeOrderItem = (index) => setOrderItems(orderItems.filter((_, i) => i !== index));
             const updateOrderItem = (index, field, value) => {
@@ -763,7 +764,16 @@
                                                     <label className="text-xs text-gray-500">สินค้า</label>
                                                     <select value={item.product} onChange={e=>updateOrderItem(idx, 'product', e.target.value)} className="w-full p-2 border rounded text-sm">
                                                         <option value="">-- เลือก --</option>
-                                                        {data.inventory.map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {i.stock})</option>)}
+                                                        <optgroup label="คลังสินค้า (Inventory)">
+                                                            {data.inventory.map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {parseNumber(i.stock).toLocaleString()})</option>)}
+                                                        </optgroup>
+                                                        <optgroup label="ไซโล (Silos)">
+                                                            {data.silos.filter(s => s.rice).map(s=>(
+                                                                <option key={s.id} value={`SILO-${s.number}: ${s.rice}`}>
+                                                                    #{s.number} {s.rice} (เหลือ {parseNumber(s.amount).toLocaleString()})
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
                                                     </select>
                                                 </div>
                                                 <div className="w-20">
