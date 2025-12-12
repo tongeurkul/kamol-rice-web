@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Fix Save Logic)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Production to Silo)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -428,7 +428,6 @@
                             return; 
                         }
 
-                        // **FIX: Ensure displayId exists even if not in form data (for Edit)**
                         if (isEdit && modal.item && modal.item.displayId) {
                             finalData.displayId = modal.item.displayId;
                         }
@@ -459,7 +458,22 @@
                                 const current = parseNumber(siloDoc.data().amount);
                                 if (current + change < 0) throw new Error(`ข้าวในไซโล #${siloNum} ไม่พอ (ขาด ${Math.abs(current + change)})`);
                                 
-                                t.update(siloRef, { amount: current + change });
+                                // Auto Update Silo Rice Name if Empty
+                                let updateData = { amount: current + change };
+                                if (current === 0 && change > 0) { 
+                                     // If silo was empty and we are adding rice, update name. 
+                                     // Need to extract rice name. 
+                                     // For production output, itemName is passed as 'rice'. 
+                                     // If we select "Silo #X", val.rice might be the ID or we need to pass name.
+                                     // Current flow: user selects "Silo #1" from destination dropdown. 
+                                     // We need to know what rice is being produced. `val.rice` holds the product name (e.g. Jasmine Rice) if selected from Inventory list.
+                                     // Wait, `val.rice` IS the product dropdown.
+                                     // If user selected "Silo #1" in `targetSilo` dropdown, `val.rice` still holds the product name.
+                                     // So we can update silo name. But `updateInventoryStock` is generic.
+                                     // Let's handle name update outside this generic function for Production Output specifically.
+                                }
+                                
+                                t.update(siloRef, updateData);
                             } else {
                                 const invItem = data.inventory.find(i => i.item === itemName);
                                 if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
@@ -493,7 +507,6 @@
                                 oldData = oldDoc.data();
                             }
 
-                            // Safe check for stockDeducted (Handle undefined from legacy data)
                             const wasDeducted = isEdit ? (oldData.stockDeducted || false) : false;
 
                             if (wasDeducted && !isSuccess) {
@@ -510,7 +523,6 @@
                                 finalData.stockDeducted = true;
                             }
                             else if (wasDeducted && isSuccess) {
-                                // Re-calculate (Revert old -> Deduct new)
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
                                 for (const item of oldItems) {
                                     await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
@@ -520,12 +532,11 @@
                                 }
                                 finalData.stockDeducted = true;
                             } else {
-                                // Keep previous state if no change in status trigger
                                 finalData.stockDeducted = wasDeducted;
                             }
                         }
                         
-                        // --- Production Logic with Input/Output ---
+                        // --- Production Logic ---
                         if (modal.type === 'production') {
                             const isProcessingOrDone = ['กำลังผลิต', 'สำเร็จ'].includes(val.status);
                             const isDone = val.status === 'สำเร็จ';
@@ -533,49 +544,74 @@
                             if(isEdit) {
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
                                 oldData = oldDoc.data();
-                                
-                                // **FIX: Restore tracking flags from DB AND force boolean to prevent undefined**
                                 finalData.stockAdded = !!(oldData.stockAdded);
                                 finalData.stockDeducted = !!(oldData.stockDeducted);
                             } else {
-                                // New Item: Ensure booleans
                                 finalData.stockAdded = false;
                                 finalData.stockDeducted = false;
                             }
 
-                            // 1. Input (Deduct Raw Material)
-                            const inputDeducted = finalData.stockDeducted; // Use the restored/init value
-                            
+                            // 1. Input Deduction
+                            const inputDeducted = finalData.stockDeducted;
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
-                                // Deduct
                                 await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockDeducted = true;
                             } else if (inputDeducted && !isProcessingOrDone && oldData && oldData.source && oldData.inputAmount) {
-                                // Revert
                                 await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `คืนวัตถุดิบ (ยกเลิกผลิต) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockDeducted = false;
                             } else if (isEdit && inputDeducted && isProcessingOrDone) {
-                                // Update Amount (Revert Old -> Deduct New)
                                 if(oldData.source && oldData.inputAmount) await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
                                 if(val.source && val.inputAmount) await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockDeducted = true;
                             }
 
-                            // 2. Output (Add Finished Good)
-                            const outputAdded = finalData.stockAdded; // Use the restored/init value
+                            // 2. Output Addition
+                            const outputAdded = finalData.stockAdded;
+                            let targetName = val.rice; // Default to Inventory Item Name
+                            
+                            // Check if target is a Silo
+                            if (val.targetSilo) {
+                                const targetSilo = data.silos.find(s => s.id === val.targetSilo);
+                                if (targetSilo) {
+                                    targetName = `SILO-${targetSilo.number}: ${targetSilo.rice || val.rice}`; // Construct Silo Name string for updateInventoryStock
+                                    // If Silo is empty, we update its name
+                                    if(parseNumber(targetSilo.amount) === 0) {
+                                        t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id), { rice: val.rice });
+                                        targetName = `SILO-${targetSilo.number}: ${val.rice}`;
+                                    } else if (targetSilo.rice && targetSilo.rice !== val.rice) {
+                                        throw new Error(`ไซโล #${targetSilo.number} มีข้าว "${targetSilo.rice}" อยู่แล้ว ไม่สามารถเติม "${val.rice}" ได้`);
+                                    }
+                                }
+                            }
 
                             if (!outputAdded && isDone) {
-                                // Add
-                                await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
+                                await updateInventoryStock(targetName, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = true;
                             } else if (outputAdded && !isDone && oldData) {
-                                // Revert
-                                await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
+                                // Revert old target
+                                let oldTargetName = oldData.rice;
+                                if (oldData.targetSilo) { // Check old data for silo
+                                     // Reconstruct old silo target name. 
+                                     // NOTE: This might be tricky if silo name changed. 
+                                     // Simplified: We assume oldData.rice holds the Rice Name.
+                                     // We need to know which silo it went to.
+                                     // Let's assume we can query the Silo by ID.
+                                     const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
+                                     if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`; // Approximation
+                                }
+                                await updateInventoryStock(oldTargetName, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = false;
                             } else if (isEdit && outputAdded && isDone) {
-                                // Update
-                                await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
-                                await updateInventoryStock(val.rice, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
+                                // Update: Revert Old -> Add New
+                                // Simplified: Just update difference if target hasn't changed.
+                                // Full safety: Revert old, Add new.
+                                let oldTargetName = oldData.rice;
+                                if(oldData.targetSilo) {
+                                    const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
+                                    if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`; 
+                                }
+                                await updateInventoryStock(oldTargetName, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
+                                await updateInventoryStock(targetName, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = true;
                             }
                         }
@@ -664,8 +700,14 @@
                     {name:'inputAmount',type:'number',label:'ปริมาณวัตถุดิบที่ใช้ (กก.)'},
                     
                     // Output Section
-                    {name:'rice',type:'select',label:'ได้สินค้า (Output)',options:data.inventory.filter(i=>!i.isSilo).map(i=>i.item)},
+                    {name:'rice',type:'select',label:'ได้สินค้า (Product Name)',options:data.inventory.filter(i=>!i.isSilo).map(i=>i.item)},
                     {name:'amount',type:'number',label:'ปริมาณที่ได้ (กก.)'},
+                    
+                    // New: Target Destination
+                    {name:'targetSilo', type:'select', label:'เก็บเข้าที่ (Destination)', options:[
+                        {value: '', label: 'คลังสินค้า (ปกติ)'},
+                        ...data.silos.map(s => ({value: s.id, label: `ไซโล #${s.number} ${s.rice ? `(${s.rice})` : '(ว่าง)'}`}))
+                    ]},
                     
                     {name:'stage',type:'select',label:'ขั้นตอน',options:['สีข้าว','คัดแยก','บรรจุ']},
                     {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
@@ -903,17 +945,69 @@
                         <form onSubmit={handleSave} className="space-y-4">
                             {getModalFields().map(f => (
                                 <div key={f.name}>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                                    {f.type==='select'?
-                                    <div className="relative">
-                                        <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
-                                            {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
-                                        </select>
-                                        <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
-                                    </div>
-                                    :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
+                                    {f.name === 'product' || f.name === 'quantity' || f.name === 'amount' ? null : ( // Hide old single fields for Orders
+                                        <>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                                            {f.type==='select'?
+                                            <div className="relative">
+                                                <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
+                                                    {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+                                                </select>
+                                                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
+                                            </div>
+                                            // Added Textarea logic
+                                            :f.type==='textarea'?
+                                            <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
+                                            :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
+                                        </>
+                                    )}
                                 </div>
                             ))}
+
+                            {/* Multi-Item Order Section */}
+                            {modal.type === 'orders' && (
+                                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <label className="block text-sm font-medium text-gray-700">รายการสินค้า</label>
+                                        <button type="button" onClick={addOrderItem} className="text-xs flex items-center gap-1 text-primary-600 font-bold hover:text-primary-700"><PlusCircle size={14}/> เพิ่มสินค้า</button>
+                                    </div>
+                                    <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                        {orderItems.map((item, idx) => (
+                                            <div key={idx} className="flex gap-2 items-end">
+                                                <div className="flex-1">
+                                                    <label className="text-xs text-gray-500">สินค้า</label>
+                                                    <select value={item.product} onChange={e=>updateOrderItem(idx, 'product', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                                        <option value="">-- เลือก --</option>
+                                                        <optgroup label="คลังสินค้า (Inventory)">
+                                                            {data.inventory.filter(i => !i.isSilo).map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {parseNumber(i.stock).toLocaleString()})</option>)}
+                                                        </optgroup>
+                                                        <optgroup label="ไซโล (Silos)">
+                                                            {data.silos.filter(s => s.rice).map(s=>(
+                                                                <option key={s.id} value={`SILO-${s.number}: ${s.rice}`}>
+                                                                    #{s.number} {s.rice} (เหลือ {parseNumber(s.amount).toLocaleString()})
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    </select>
+                                                </div>
+                                                <div className="w-20">
+                                                    <label className="text-xs text-gray-500">จำนวน</label>
+                                                    <input type="number" value={item.quantity} onChange={e=>updateOrderItem(idx, 'quantity', e.target.value)} className="w-full p-2 border rounded text-sm text-right" placeholder="0"/>
+                                                </div>
+                                                <div className="w-24">
+                                                    <label className="text-xs text-gray-500">ยอดเงิน</label>
+                                                    <input type="number" value={item.amount} onChange={e=>updateOrderItem(idx, 'amount', e.target.value)} className="w-full p-2 border rounded text-sm text-right" placeholder="0"/>
+                                                </div>
+                                                <button type="button" onClick={()=>removeOrderItem(idx)} className="p-2 text-red-400 hover:text-red-600 mb-0.5"><MinusCircle size={18}/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 text-right text-sm font-bold text-gray-700 border-t pt-2">
+                                        รวมเงิน: {formatCurrency(orderItems.reduce((s, i) => s + parseNumber(i.amount), 0))}
+                                    </div>
+                                </div>
+                            )}
+
                             <button className="w-full bg-primary-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-primary-700 hover:shadow-xl transition-all mt-4 flex justify-center items-center gap-2">
                                 <Save size={20} /> บันทึกข้อมูล
                             </button>
