@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Production Fix)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Complete Stable)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,7 +68,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle, ArrowRight
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -280,37 +280,6 @@
                             needsCommit = true;
                         }
                     }
-                    // Seed Inventory Logic
-                    const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                    const snapInv = await getDocs(qInv);
-                    if (snapInv.empty) {
-                        console.log("Seeding Real Inventory Data...");
-                        const items = [
-                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
-                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
-                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
-                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
-                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
-                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
-                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
-                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
-                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
-                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
-                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
-                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
-                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
-                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
-                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
-                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
-                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' },
-                            { code: 'RJ-JAS-02', item: 'ข้าว Reject 2 (มะลิ)', category: 'Reject/อื่นๆ', stock: 0, location: 'รอระบุ' }
-                        ];
-                        items.forEach(it => {
-                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
-                        });
-                        needsCommit = true;
-                    }
                     if (needsCommit) await batch.commit();
                 };
                 checkAndSeedSilos();
@@ -321,23 +290,17 @@
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
-                                 const cleanLocation = item.location.trim().replace(/^\.+/, ''); // Remove all leading dots
-                                 // Update DB silently
+                                 const cleanLocation = item.location.trim().replace(/^\.+/, '');
                                  updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
-                                 // Update local item for immediate UI fix
                                  item.location = cleanLocation;
                              }
                          });
-
-                         // Sort logic
                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
                          });
                     }
-                    
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
-                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
@@ -667,7 +630,7 @@
                     {name:'location',label:'ที่เก็บ'}
                 ];
                 
-                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'location',label:'ที่อยู่'}];
+                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},{name:'location',label:'ที่อยู่'}];
                 
                 if(modal.type === 'silo') return [
                     {name:'rice', label:`ข้าวในถัง (Silo ${modal.item.number})`, type:'text', placeholder:'เช่น ข้าวเปลือกหอมมะลิ (ว่างไว้ถ้าไม่มี)'},
