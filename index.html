@@ -255,6 +255,11 @@
             const slotsC = getSlots("C", ["C1","C2","C3","C4","C5","C6"]);
             const slotsD = getSlots("D", ["D1","D2","D3"]);
 
+            // New: Paddy Warehouses
+            const slotsWA = getSlots("WA", ["WA1","WA2","WA3","WA4"]);
+            const slotsWB = getSlots("WB", ["WB1","WB2","WB3","WB4"]);
+            const slotsWC = getSlots("WC", ["WC1","WC2","WC3","WC4"]);
+
             const renderSilos = () => {
                 const siloNumbers = Array.from({length: 13}, (_, i) => i + 1);
                 return (
@@ -345,6 +350,20 @@
             return (
                 <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
                     {renderSilos()}
+                    
+                    {/* New Paddy Warehouse Zone */}
+                    <div className="p-4 rounded-xl border bg-amber-50 border-amber-200 shadow-sm">
+                        <div className="flex items-center justify-center gap-2 mb-4">
+                            <Factory size={20} className="text-amber-700"/>
+                            <h3 className="font-bold text-gray-800 text-lg">โซนโกดังข้าวเปลือก (Paddy Warehouses)</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                             {renderZone("โกดัง A (Warehouse A)", slotsWA, "bg-white border-amber-100")}
+                             {renderZone("โกดัง B (Warehouse B)", slotsWB, "bg-white border-amber-100")}
+                             {renderZone("โกดัง C (Warehouse C)", slotsWC, "bg-white border-amber-100")}
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {renderZone("Zone A (ข้าวต้น)", slotsA, "bg-yellow-50 border-yellow-200")}
                         {renderZone("Zone D (Reject)", slotsD, "bg-red-50 border-red-200")}
@@ -359,7 +378,7 @@
                              {items.filter(i => {
                                  if(i.isSilo) return false;
                                  const loc = i.location || "";
-                                 return loc.startsWith("E") || loc === 'ลานบรรจุ' || (!loc.startsWith("A") && !loc.startsWith("B") && !loc.startsWith("C") && !loc.startsWith("D"));
+                                 return loc.startsWith("E") || loc === 'ลานบรรจุ' || (!loc.startsWith("A") && !loc.startsWith("B") && !loc.startsWith("C") && !loc.startsWith("D") && !loc.startsWith("WA") && !loc.startsWith("WB") && !loc.startsWith("WC"));
                              }).map(item => (
                                  <div key={item.id} onClick={() => onSelect(item)} className="bg-white px-3 py-2 rounded-lg border border-gray-300 shadow-sm cursor-pointer hover:bg-gray-50 min-w-[100px]">
                                      <div className="text-[10px] text-blue-600 font-bold mb-0.5">{item.code || '-'}</div>
@@ -434,11 +453,11 @@
                                  updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
                                  item.location = cleanLocation;
                              }
-                         });
-                         items = items.sort((a,b) => {
+                          });
+                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
-                         });
+                          });
                     }
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
                     setData(prev => ({ ...prev, [key]: items }));
@@ -833,7 +852,7 @@
                 ];
                 
                 if(modal.type === 'inventory') return [
-                    {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1'},
+                    {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1, WA1, SILO-1'},
                     {name:'item',label:'ชื่อสินค้า'},
                     {name:'category',type:'select',label:'หมวด',options:['ข้าวสาร','ข้าวเปลือก','ข้าวหัก/ปลาย','Reject/อื่นๆ']},
                     {name:'stock',type:'number',label:'คงเหลือ'},
@@ -1285,7 +1304,7 @@
                                     {menu === 'inventory' && viewMode === 'map' ? (
                                         <WarehouseMap items={getFilteredData(data.inventory)} silos={data.silos} onSelect={(item) => setModal({open:true, type: item.isSilo ? 'silo' : 'inventory', item: item.isSilo ? item.originalSilo : item, action: 'move'})} />
                                     ) : viewMode === 'list' ? renderTable(menu, 
-                                        getColumns(menu),
+                                        getColumns(menu), 
                                         getFilteredData(data[menu==='stockLogs'?'logs':menu])
                                     ) : (
                                         renderGrid(getFilteredData(data[menu==='stockLogs'?'logs':menu]), menu)
