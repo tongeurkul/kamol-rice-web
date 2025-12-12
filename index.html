@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Fix Save Error)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Fix Undefined Error)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -280,6 +280,37 @@
                             needsCommit = true;
                         }
                     }
+                    // Seed Inventory Logic
+                    const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+                    const snapInv = await getDocs(qInv);
+                    if (snapInv.empty) {
+                        console.log("Seeding Real Inventory Data...");
+                        const items = [
+                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
+                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
+                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
+                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
+                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
+                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
+                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
+                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
+                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
+                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
+                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
+                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
+                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
+                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
+                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
+                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
+                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' },
+                            { code: 'RJ-JAS-02', item: 'ข้าว Reject 2 (มะลิ)', category: 'Reject/อื่นๆ', stock: 0, location: 'รอระบุ' }
+                        ];
+                        items.forEach(it => {
+                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
+                        });
+                        needsCommit = true;
+                    }
                     if (needsCommit) await batch.commit();
                 };
                 checkAndSeedSilos();
@@ -290,8 +321,10 @@
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
-                                 const cleanLocation = item.location.trim().replace(/^\.+/, '');
+                                 const cleanLocation = item.location.trim().replace(/^\.+/, ''); // Remove all leading dots
+                                 // Update DB silently
                                  updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
+                                 // Update local item for immediate UI fix
                                  item.location = cleanLocation;
                              }
                          });
@@ -462,20 +495,24 @@
                                 oldData = oldDoc.data();
                             }
 
-                            if (oldData && oldData.stockDeducted && !isSuccess) {
+                            // Safe check for stockDeducted (Handle undefined from legacy data)
+                            const wasDeducted = isEdit ? (oldData.stockDeducted || false) : false;
+
+                            if (wasDeducted && !isSuccess) {
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
                                 for (const item of oldItems) {
                                     await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
                                 }
                                 finalData.stockDeducted = false;
                             }
-                            else if ((!oldData || !oldData.stockDeducted) && isSuccess) {
+                            else if (!wasDeducted && isSuccess) {
                                 for (const item of newItems) {
                                     await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ขาย) ${finalData.displayId}`, finalData.displayId);
                                 }
                                 finalData.stockDeducted = true;
                             }
-                            else if (oldData && oldData.stockDeducted && isSuccess) {
+                            else if (wasDeducted && isSuccess) {
+                                // Re-calculate (Revert old -> Deduct new)
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
                                 for (const item of oldItems) {
                                     await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
@@ -484,6 +521,9 @@
                                     await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
                                 }
                                 finalData.stockDeducted = true;
+                            } else {
+                                // Keep previous state if no change in status trigger
+                                finalData.stockDeducted = wasDeducted;
                             }
                         }
                         
@@ -496,13 +536,13 @@
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
                                 oldData = oldDoc.data();
                                 
-                                // FIX: Explicitly restore tracking flags from DB
-                                finalData.stockAdded = oldData.stockAdded;
-                                finalData.stockDeducted = oldData.stockDeducted;
+                                // FIX: Explicitly restore tracking flags from DB AND handle undefined
+                                finalData.stockAdded = oldData.stockAdded || false;
+                                finalData.stockDeducted = oldData.stockDeducted || false;
                             }
 
                             // 1. Input (Deduct Raw Material)
-                            const inputDeducted = isEdit ? oldData.stockDeducted : false;
+                            const inputDeducted = isEdit ? (oldData.stockDeducted || false) : false;
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
                                 // Deduct
                                 await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
@@ -519,7 +559,7 @@
                             }
 
                             // 2. Output (Add Finished Good)
-                            const outputAdded = isEdit ? oldData.stockAdded : false;
+                            const outputAdded = isEdit ? (oldData.stockAdded || false) : false;
                             if (!outputAdded && isDone) {
                                 // Add
                                 await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
@@ -673,7 +713,7 @@
                         )},
                         {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
                         {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 whitespace-pre-wrap min-w-[200px] block">{r.details || '-'}</span>},
-                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
+                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
                     ]; 
                     case 'inventory': return [
                         {h:'ตำแหน่ง/รหัส',k:'code'},
@@ -839,7 +879,7 @@
                                             <td className="px-6 py-4 text-right align-top">
                                                 <div className="flex items-center justify-end gap-1">
                                                     {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><Printer size={16}/></button>}
-                                                    <button onClick={()=>setModal({open:true, type: item.isSilo ? 'silo' : type, item: item.isSilo ? item.originalSilo : item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
+                                                    <button onClick={()=>setModal({open:true, type, item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
                                                     {!item.isSilo && <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>}
                                                 </div>
                                             </td>
