@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Production Input-Output)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Production Fix)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -280,6 +280,37 @@
                             needsCommit = true;
                         }
                     }
+                    // Seed Inventory Logic
+                    const qInv = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+                    const snapInv = await getDocs(qInv);
+                    if (snapInv.empty) {
+                        console.log("Seeding Real Inventory Data...");
+                        const items = [
+                            { code: 'A1', item: 'น.1', category: 'ข้าวสาร', stock: 11000, location: 'A1' },
+                            { code: 'A2', item: 'น.1', category: 'ข้าวสาร', stock: 98000, location: 'A2' },
+                            { code: 'A3', item: 'มะลิ B', category: 'ข้าวสาร', stock: 66000, location: 'A3' },
+                            { code: 'B1', item: 'น.1 เหลือง', category: 'ข้าวสาร', stock: 31000, location: 'B1' },
+                            { code: 'B2', item: 'หัก A', category: 'ข้าวหัก/ปลาย', stock: 32500, location: 'B2' },
+                            { code: 'B3', item: 'วางพาเลต น.1 เหลือง', category: 'ข้าวสาร', stock: 0, location: 'B3' },
+                            { code: 'B4/1', item: 'มะลิ A', category: 'ข้าวสาร', stock: 8000, location: 'B4/1' },
+                            { code: 'B4/2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 0, location: 'B4/2' },
+                            { code: 'B5', item: 'หักมะลิ A', category: 'ข้าวหัก/ปลาย', stock: 10000, location: 'B5' },
+                            { code: 'B6', item: 'ปลาย น.', category: 'ข้าวหัก/ปลาย', stock: 45000, location: 'B6' },
+                            { code: 'C1', item: 'น.1', category: 'ข้าวสาร', stock: 6000, location: 'C1' },
+                            { code: 'C2', item: 'ข้าวไก่', category: 'Reject/อื่นๆ', stock: 36000, location: 'C2' },
+                            { code: 'C3', item: 'กระสอบแพ็คแล้ว', category: 'ข้าวสาร', stock: 0, location: 'C3' },
+                            { code: 'C4', item: 'หักมะลิ B', category: 'ข้าวหัก/ปลาย', stock: 41000, location: 'C4' },
+                            { code: 'C5/1', item: 'หัก น.เหลือง', category: 'ข้าวหัก/ปลาย', stock: 43000, location: 'C5/1' },
+                            { code: 'C5/2', item: 'หัก น.', category: 'ข้าวหัก/ปลาย', stock: 8000, location: 'C5/2' },
+                            { code: 'C6', item: 'มะลิรวม', category: 'ข้าวสาร', stock: 95000, location: 'C6' },
+                            { code: 'RJ-JAS-02', item: 'ข้าว Reject 2 (มะลิ)', category: 'Reject/อื่นๆ', stock: 0, location: 'รอระบุ' }
+                        ];
+                        items.forEach(it => {
+                            const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+                            batch.set(ref, { ...it, displayId: `INV-${Math.floor(Math.random()*9000)+1000}`, createdAt: serverTimestamp() });
+                        });
+                        needsCommit = true;
+                    }
                     if (needsCommit) await batch.commit();
                 };
                 checkAndSeedSilos();
@@ -290,17 +321,23 @@
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
-                                 const cleanLocation = item.location.trim().replace(/^\.+/, '');
+                                 const cleanLocation = item.location.trim().replace(/^\.+/, ''); // Remove all leading dots
+                                 // Update DB silently
                                  updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
+                                 // Update local item for immediate UI fix
                                  item.location = cleanLocation;
                              }
                          });
+
+                         // Sort logic
                          items = items.sort((a,b) => {
                              if(!a.code) return 1; if(!b.code) return -1;
                              return a.code.localeCompare(b.code, undefined, {numeric: true, sensitivity: 'base'});
                          });
                     }
+                    
                     if(key === 'silos') items = items.sort((a,b) => a.number - b.number);
+                    
                     setData(prev => ({ ...prev, [key]: items }));
                     setLoading(false);
                 }));
@@ -490,10 +527,14 @@
                             if(isEdit) {
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
                                 oldData = oldDoc.data();
+                                // FIX: Restore displayId from old data to prevent undefined error
+                                finalData.displayId = oldData.displayId;
+                                finalData.stockAdded = oldData.stockAdded;
+                                finalData.stockDeducted = oldData.stockDeducted;
                             }
 
                             // 1. Input (Deduct Raw Material)
-                            const inputDeducted = oldData ? oldData.stockDeducted : false;
+                            const inputDeducted = isEdit ? oldData.stockDeducted : false;
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
                                 // Deduct
                                 await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
@@ -504,17 +545,13 @@
                                 finalData.stockDeducted = false;
                             } else if (isEdit && inputDeducted && isProcessingOrDone) {
                                 // Update Amount (Revert Old -> Deduct New)
-                                // Simplified: Assuming no change in source item for safety, just amount or diff?
-                                // Full safety: Revert old, deduct new
                                 if(oldData.source && oldData.inputAmount) await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
                                 if(val.source && val.inputAmount) await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockDeducted = true;
-                            } else if (inputDeducted) {
-                                finalData.stockDeducted = true; // Keep true if already deducted and state is still valid
                             }
 
                             // 2. Output (Add Finished Good)
-                            const outputAdded = oldData ? oldData.stockAdded : false;
+                            const outputAdded = isEdit ? oldData.stockAdded : false;
                             if (!outputAdded && isDone) {
                                 // Add
                                 await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
@@ -527,8 +564,6 @@
                                 // Update
                                 await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
                                 await updateInventoryStock(val.rice, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
-                                finalData.stockAdded = true;
-                            } else if (outputAdded) {
                                 finalData.stockAdded = true;
                             }
                         }
