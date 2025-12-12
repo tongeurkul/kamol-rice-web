@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Complete Stable)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Fix Save Error)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,7 +68,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle, ArrowRight
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -397,6 +397,11 @@
                             return; 
                         }
 
+                        // **FIX: Ensure displayId exists even if not in form data (for Edit)**
+                        if (isEdit && modal.item && modal.item.displayId) {
+                            finalData.displayId = modal.item.displayId;
+                        }
+
                         if (!isEdit) {
                             finalData.createdAt = serverTimestamp();
                             const idSuffix = Math.floor(Math.random()*9000)+1000;
@@ -442,7 +447,7 @@
                                 item: itemName,
                                 change: change,
                                 type: change > 0 ? 'IN' : 'OUT',
-                                refId: refId,
+                                refId: refId || 'UNKNOWN',
                                 reason: reason,
                                 createdAt: serverTimestamp()
                             });
@@ -490,8 +495,8 @@
                             if(isEdit) {
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
                                 oldData = oldDoc.data();
-                                // FIX: Restore displayId from old data to prevent undefined error
-                                finalData.displayId = oldData.displayId;
+                                
+                                // FIX: Explicitly restore tracking flags from DB
                                 finalData.stockAdded = oldData.stockAdded;
                                 finalData.stockDeducted = oldData.stockDeducted;
                             }
