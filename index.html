@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Add Region)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Production Input-Output)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,7 +68,7 @@
             TrendingUp, ArrowUpRight, ArrowDownRight, Truck, Factory, ClipboardList, 
             Plus, Save, Loader2, Database, Pencil, Trash2, Filter, AlertTriangle, AlertCircle, 
             Check, Printer, History, RefreshCcw, Info, KeyRound, Download, ChevronRight, LogOut,
-            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle, Map
+            Cylinder, Clock, Tag, Layers, ArrowUpDown, MapPin, LayoutGrid, List, Box, FileText, Calendar, PlusCircle, MinusCircle, ArrowRight
         } from 'lucide-react';
         import { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -128,9 +128,17 @@
             return true;
         };
 
+        const inferCategory = (riceName) => {
+            if (!riceName) return 'ไซโล (ว่าง)';
+            if (riceName.includes('เปลือก')) return 'ข้าวเปลือก';
+            if (riceName.includes('หัก') || riceName.includes('ปลาย')) return 'ข้าวหัก/ปลาย';
+            if (riceName.toLowerCase().includes('reject') || riceName.includes('ไก่')) return 'Reject/อื่นๆ';
+            return 'ข้าวสาร';
+        };
+
         const downloadCSV = (data, filename) => {
             if (!data || !data.length) return alert("ไม่มีข้อมูลให้ดาวน์โหลด");
-            const headers = Object.keys(data[0]).filter(k => !['id','createdAt','updatedAt', 'isSilo'].includes(k));
+            const headers = Object.keys(data[0]).filter(k => !['id','createdAt','updatedAt', 'isSilo', 'originalSilo'].includes(k));
             const csvRows = [headers.join(',')];
             for (const row of data) {
                 const values = headers.map(header => {
@@ -393,7 +401,7 @@
                             finalData.createdAt = serverTimestamp();
                             const idSuffix = Math.floor(Math.random()*9000)+1000;
                             if (modal.type === 'orders') finalData.displayId = `#ORD-${idSuffix}`;
-                            else if (modal.type === 'production') { finalData.displayId = `#P-${idSuffix}`; finalData.status = 'รอเริ่ม'; finalData.stockAdded = false; }
+                            else if (modal.type === 'production') { finalData.displayId = `#P-${idSuffix}`; finalData.status = 'รอเริ่ม'; finalData.stockAdded = false; finalData.stockDeducted = false; } // Init flags
                             else if (modal.type === 'inventory') finalData.displayId = `#INV-${idSuffix}`;
                             else if (modal.type === 'shipping') { finalData.displayId = `#SHP-${idSuffix}`; finalData.status = 'กำลังส่ง'; }
                             else if (modal.type === 'customers') finalData.displayId = `#CUS-${idSuffix}`;
@@ -474,9 +482,55 @@
                             }
                         }
                         
-                        if (modal.type === 'production' && isEdit && val.status === 'สำเร็จ' && !modal.item.stockAdded) {
-                            await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
-                            finalData.stockAdded = true;
+                        // --- Production Logic with Input/Output ---
+                        if (modal.type === 'production') {
+                            const isProcessingOrDone = ['กำลังผลิต', 'สำเร็จ'].includes(val.status);
+                            const isDone = val.status === 'สำเร็จ';
+                            let oldData = null;
+                            if(isEdit) {
+                                const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
+                                oldData = oldDoc.data();
+                            }
+
+                            // 1. Input (Deduct Raw Material)
+                            const inputDeducted = oldData ? oldData.stockDeducted : false;
+                            if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
+                                // Deduct
+                                await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockDeducted = true;
+                            } else if (inputDeducted && !isProcessingOrDone && oldData && oldData.source && oldData.inputAmount) {
+                                // Revert
+                                await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `คืนวัตถุดิบ (ยกเลิกผลิต) ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockDeducted = false;
+                            } else if (isEdit && inputDeducted && isProcessingOrDone) {
+                                // Update Amount (Revert Old -> Deduct New)
+                                // Simplified: Assuming no change in source item for safety, just amount or diff?
+                                // Full safety: Revert old, deduct new
+                                if(oldData.source && oldData.inputAmount) await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
+                                if(val.source && val.inputAmount) await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockDeducted = true;
+                            } else if (inputDeducted) {
+                                finalData.stockDeducted = true; // Keep true if already deducted and state is still valid
+                            }
+
+                            // 2. Output (Add Finished Good)
+                            const outputAdded = oldData ? oldData.stockAdded : false;
+                            if (!outputAdded && isDone) {
+                                // Add
+                                await updateInventoryStock(val.rice, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockAdded = true;
+                            } else if (outputAdded && !isDone && oldData) {
+                                // Revert
+                                await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockAdded = false;
+                            } else if (isEdit && outputAdded && isDone) {
+                                // Update
+                                await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
+                                await updateInventoryStock(val.rice, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
+                                finalData.stockAdded = true;
+                            } else if (outputAdded) {
+                                finalData.stockAdded = true;
+                            }
                         }
 
                         if (isEdit) t.update(doc(db, 'artifacts', appId, 'public', 'data', colName, modal.item.id), finalData);
@@ -494,8 +548,29 @@
             const lowStock = data.inventory.filter(i => parseNumber(i.stock) < LOW_STOCK_THRESHOLD);
             const sales = data.orders.filter(o => o.status === 'สำเร็จ').reduce((s, o) => s + parseNumber(o.amount), 0);
 
+            // Merged Data Logic for Inventory
+            const getInventoryData = () => {
+                const siloItems = data.silos.filter(s => s.rice && s.amount > 0).map(s => ({
+                    id: s.id,
+                    code: `SILO-${s.number}`,
+                    item: `ข้าวในไซโล #${s.number} (${s.rice})`,
+                    category: inferCategory(s.rice), // Use helper to guess
+                    stock: s.amount,
+                    location: `ถังไซโล #${s.number}`,
+                    isSilo: true,
+                    originalSilo: s
+                }));
+                return [...data.inventory, ...siloItems];
+            };
+
             const getFilteredData = (list) => {
                 let res = [...list]; 
+                
+                // If Inventory menu, merge silos
+                if (menu === 'inventory') {
+                    res = getInventoryData();
+                }
+
                 if (searchTerm) {
                     const lowerTerm = searchTerm.toLowerCase();
                     res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
@@ -522,7 +597,6 @@
 
             // Modal Fields
             const getModalFields = () => {
-                // Fixed: Added 'dueDate' field to Orders modal
                 if(modal.type === 'orders') return [
                     {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
                     {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
@@ -531,11 +605,21 @@
                     {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
                 ];
                 
+                // Fixed: Added 'source' and 'inputAmount' for Production Input
                 if(modal.type === 'production') return [
                     {name:'startDateTime',type:'datetime-local',label:'เริ่มผลิต (วัน-เวลา)'},
                     {name:'endDateTime',type:'datetime-local',label:'สิ้นสุด (วัน-เวลา)'},
-                    {name:'rice',type:'select',label:'สินค้า',options:data.inventory.map(i=>i.item)},
-                    {name:'amount',type:'number',label:'จำนวน'},
+                    // Input Section
+                    {name:'source',type:'select',label:'ใช้วัตถุดิบ (Input)',options:[
+                         ...data.silos.filter(s=>s.rice).map(s=>({value:`SILO-${s.number}: ${s.rice}`, label:`ไซโล #${s.number} ${s.rice} (${parseNumber(s.amount)} กก.)`})),
+                         ...data.inventory.filter(i=>!i.isSilo).map(i=>({value:i.item, label:`${i.item} (${i.stock})`}))
+                    ]},
+                    {name:'inputAmount',type:'number',label:'ปริมาณวัตถุดิบที่ใช้ (กก.)'},
+                    
+                    // Output Section
+                    {name:'rice',type:'select',label:'ได้สินค้า (Output)',options:data.inventory.filter(i=>!i.isSilo).map(i=>i.item)},
+                    {name:'amount',type:'number',label:'ปริมาณที่ได้ (กก.)'},
+                    
                     {name:'stage',type:'select',label:'ขั้นตอน',options:['สีข้าว','คัดแยก','บรรจุ']},
                     {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
                 ];
@@ -548,12 +632,7 @@
                     {name:'location',label:'ที่เก็บ'}
                 ];
                 
-                if(modal.type === 'customers') return [
-                    {name:'name',label:'ชื่อ'},
-                    {name:'phone',label:'โทร'},
-                    {name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},
-                    {name:'location',label:'ที่อยู่'}
-                ];
+                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'location',label:'ที่อยู่'}];
                 
                 if(modal.type === 'silo') return [
                     {name:'rice', label:`ข้าวในถัง (Silo ${modal.item.number})`, type:'text', placeholder:'เช่น ข้าวเปลือกหอมมะลิ (ว่างไว้ถ้าไม่มี)'},
@@ -579,7 +658,7 @@
                         {h:'กำหนดส่ง',k:'dueDate',render:r=>r.dueDate ? formatDate(r.dueDate) : '-'},
                         {h:'เลขที่',k:'displayId'},
                         {h:'ลูกค้า',k:'customer'},
-                        {h:'ภูมิภาค',k:'region'}, // Added region here
+                        {h:'ภูมิภาค',k:'region'},
                         {h:'รายการสินค้า',k:'product', render:r => (
                             <div className="max-w-xs">
                                 {r.items && r.items.length > 0 ? (
@@ -590,7 +669,7 @@
                             </div>
                         )},
                         {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
-                        {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 truncate max-w-xs block" title={r.details}>{r.details || '-'}</span>},
+                        {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 whitespace-pre-wrap min-w-[200px] block">{r.details || '-'}</span>},
                         {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
                     ]; 
                     case 'inventory': return [
@@ -602,9 +681,8 @@
                     ];
                     case 'production': return [
                         {h:'เริ่ม',k:'startDateTime'},
-                        {h:'สิ้นสุด',k:'endDateTime'},
-                        {h:'สินค้า',k:'rice'},
-                        {h:'จำนวน',k:'amount'},
+                        {h:'ใช้วัตถุดิบ',k:'source',render:r=>r.source ? <div className="text-xs"><div className="font-medium text-gray-700">{r.source}</div><div className="text-gray-500">-{parseNumber(r.inputAmount).toLocaleString()} กก.</div></div> : '-'},
+                        {h:'ได้ผลผลิต',k:'rice',render:r=>r.rice ? <div className="text-xs"><div className="font-medium text-blue-700">{r.rice}</div><div className="text-blue-500">+{parseNumber(r.amount).toLocaleString()} กก.</div></div> : '-'},
                         {h:'สถานะ',k:'status'}
                     ];
                     case 'customers': return [{h:'ชื่อ',k:'name'},{h:'โทร',k:'phone'},{h:'ภูมิภาค',k:'region'},{h:'ที่อยู่',k:'location'}];
@@ -661,8 +739,18 @@
                                         {type==='production' && (
                                             <div className="mt-1">
                                                 <div className="text-sm text-gray-600 flex items-center gap-1"><Clock size={14}/> {formatDateTime(item.startDateTime)}</div>
-                                                <div className="text-xl font-bold text-blue-600 mt-1">{parseNumber(item.amount).toLocaleString()} กก.</div>
-                                                <div className="text-xs text-gray-500 mt-1 bg-gray-100 inline-block px-2 py-0.5 rounded">{item.stage || 'ไม่ระบุ'}</div>
+                                                {/* Input Info */}
+                                                {item.source && (
+                                                    <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                                                        <ArrowRight size={12} className="text-red-500"/>
+                                                        ใช้: {item.source} ({parseNumber(item.inputAmount).toLocaleString()})
+                                                    </div>
+                                                )}
+                                                {/* Output Info */}
+                                                <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                                     <ArrowRight size={12} className="text-green-500"/>
+                                                     ได้: {item.rice} ({parseNumber(item.amount).toLocaleString()})
+                                                </div>
                                             </div>
                                         )}
                                         {type==='customers' && (
@@ -677,7 +765,6 @@
                                     <div className="border-t border-gray-100 mt-4 pt-3 flex justify-between items-center">
                                         {type==='inventory' && <div className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {item.location}</div>}
                                         
-                                        {/* Fixed: Card view shows both Order and Due date */}
                                         {type==='orders' && (
                                             <div className="text-xs text-gray-400 flex flex-col">
                                                 <span>สั่ง: {formatDate(item.date)}</span>
@@ -691,8 +778,8 @@
                                         
                                         <div className="flex gap-1 ml-auto">
                                              {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-50 rounded-lg"><Printer size={14}/></button>}
-                                             <button onClick={()=>setModal({open:true, type, item})} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"><Pencil size={14}/></button>
-                                             <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>
+                                             <button onClick={()=>setModal({open:true, type: item.isSilo ? 'silo' : type, item: item.isSilo ? item.originalSilo : item})} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"><Pencil size={14}/></button>
+                                             {!item.isSilo && <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>}
                                         </div>
                                     </div>
                                 </div>
@@ -723,12 +810,6 @@
                                                 <td className="px-6 py-4 font-medium text-primary-600 align-top">{item.displayId}</td>
                                                 <td className="px-6 py-4 text-gray-800 font-medium align-top">{item.customer}</td>
                                                 <td className="px-6 py-4 text-gray-600 align-top">
-                                                    {/* Region is not part of order item but joined potentially? No, region is customer property. */}
-                                                    {/* We need to fetch customer region if we want to show it here, but current data structure stores region in Customers collection. */}
-                                                    {/* Assuming we just want to show region if available in order data or join manually. */}
-                                                    {/* Simplified: Since we don't join collections, we'll leave region blank unless stored in order. */}
-                                                    {/* If user wanted Region column in Order table, we need to fetch customer data or store it in order. */}
-                                                    {/* For now, just placeholder or fetch if we have customer list in 'data.customers' */}
                                                     {data.customers.find(c => c.name === item.customer)?.region || '-'}
                                                 </td>
                                                 <td className="px-6 py-4 text-gray-600 align-top">
@@ -741,7 +822,10 @@
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 font-bold text-gray-800 align-top">{formatCurrency(parseNumber(item.amount))}</td>
-                                                <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate align-top" title={item.details}>{item.details || '-'}</td>
+                                                {/* Details Column (Fixed) */}
+                                                <td className="px-6 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap min-w-[200px]">
+                                                    {item.details || '-'}
+                                                </td>
                                                 <td className="px-6 py-4 align-top"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>{item.status}</span></td>
                                              </>
                                         ) : (
@@ -752,8 +836,8 @@
                                             <td className="px-6 py-4 text-right align-top">
                                                 <div className="flex items-center justify-end gap-1">
                                                     {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><Printer size={16}/></button>}
-                                                    <button onClick={()=>setModal({open:true, type, item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
-                                                    <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>
+                                                    <button onClick={()=>setModal({open:true, type: item.isSilo ? 'silo' : type, item: item.isSilo ? item.originalSilo : item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
+                                                    {!item.isSilo && <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>}
                                                 </div>
                                             </td>
                                         )}
@@ -806,7 +890,7 @@
                                                     <select value={item.product} onChange={e=>updateOrderItem(idx, 'product', e.target.value)} className="w-full p-2 border rounded text-sm">
                                                         <option value="">-- เลือก --</option>
                                                         <optgroup label="คลังสินค้า (Inventory)">
-                                                            {data.inventory.map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {parseNumber(i.stock).toLocaleString()})</option>)}
+                                                            {data.inventory.filter(i => !i.isSilo).map(i=><option key={i.id} value={i.item}>{i.item} (เหลือ {parseNumber(i.stock).toLocaleString()})</option>)}
                                                         </optgroup>
                                                         <optgroup label="ไซโล (Silos)">
                                                             {data.silos.filter(s => s.rice).map(s=>(
