@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Fixed Reference Error)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Fixed Timestamp Error)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -97,7 +97,16 @@
         const LOW_STOCK_THRESHOLD = 1000;
         const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#ec4899', '#6366f1'];
 
-        // --- Helpers ---
+        // --- Global Helpers & Constants ---
+        const menuItems = [
+            {id:'dashboard',icon:LayoutDashboard,l:'ภาพรวม'},
+            {id:'orders',icon:ClipboardList,l:'คำสั่งซื้อ'},
+            {id:'production',icon:Factory,l:'การผลิต'},
+            {id:'inventory',icon:Package,l:'คลังสินค้า'},
+            {id:'customers',icon:Users,l:'ลูกค้า'},
+            {id:'logs',icon:History,l:'ประวัติ'}
+        ];
+
         const parseNumber = (str) => {
             if (typeof str === 'number') return str;
             if (!str) return 0;
@@ -127,7 +136,6 @@
             if (endStr && checkDate > new Date(endStr).setHours(0,0,0,0)) return false;
             return true;
         };
-
         const inferCategory = (riceName) => {
             if (!riceName) return 'ไซโล (ว่าง)';
             if (riceName.includes('เปลือก')) return 'ข้าวเปลือก';
@@ -233,10 +241,7 @@
             </div>
         );
 
-        // --- Warehouse Map Component ---
         const WarehouseMap = ({ items, silos, onSelect }) => {
-            
-            // Dynamic Slot Finder
             const getSlots = (prefix, defaults) => {
                 const found = items
                     .filter(i => i.location && i.location.startsWith(prefix) && !i.isSilo)
@@ -245,13 +250,11 @@
                 return combined.sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}));
             };
 
-            // Dynamic slots based on inventory
             const slotsA = getSlots("A", ["A1","A2","A3"]);
             const slotsB = getSlots("B", ["B1","B2","B3","B4","B5","B6"]);
             const slotsC = getSlots("C", ["C1","C2","C3","C4","C5","C6"]);
             const slotsD = getSlots("D", ["D1","D2","D3"]);
 
-            // Render Silos Group
             const renderSilos = () => {
                 const siloNumbers = Array.from({length: 13}, (_, i) => i + 1);
                 return (
@@ -304,7 +307,6 @@
                 );
             };
 
-            // Define Zones
             const renderZone = (title, slots, colorClass) => (
                 <div className={`p-4 rounded-xl border ${colorClass} h-full shadow-sm`}>
                     <h3 className="font-bold text-gray-700 mb-3 text-center">{title}</h3>
@@ -317,7 +319,7 @@
                             return (
                                 <div 
                                     key={slotName}
-                                    onClick={() => hasItem ? onSelect(item) : null} // Allow selecting empty? user didn't ask, keep simple
+                                    onClick={() => hasItem ? onSelect(item) : null}
                                     className={`
                                         p-2 rounded-lg border text-center cursor-pointer transition-all hover:scale-105 min-h-[80px] flex flex-col justify-center
                                         ${hasItem ? 'bg-white border-primary-300 shadow-sm hover:shadow-md' : 'bg-gray-50 border-gray-100 text-gray-300'}
@@ -342,10 +344,7 @@
 
             return (
                 <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
-                    {/* Silos Section */}
                     {renderSilos()}
-
-                    {/* Warehouse Zones */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {renderZone("Zone A (ข้าวต้น)", slotsA, "bg-yellow-50 border-yellow-200")}
                         {renderZone("Zone D (Reject)", slotsD, "bg-red-50 border-red-200")}
@@ -360,7 +359,6 @@
                              {items.filter(i => {
                                  if(i.isSilo) return false;
                                  const loc = i.location || "";
-                                 // Show E zone or anything not in A,B,C,D
                                  return loc.startsWith("E") || loc === 'ลานบรรจุ' || (!loc.startsWith("A") && !loc.startsWith("B") && !loc.startsWith("C") && !loc.startsWith("D"));
                              }).map(item => (
                                  <div key={item.id} onClick={() => onSelect(item)} className="bg-white px-3 py-2 rounded-lg border border-gray-300 shadow-sm cursor-pointer hover:bg-gray-50 min-w-[100px]">
@@ -377,40 +375,28 @@
             );
         };
 
-
         // --- Main App ---
         function App() {
             const [menu, setMenu] = useState('dashboard');
             const [user, setUser] = useState(null);
             const [data, setData] = useState({ orders:[], production:[], inventory:[], shipping:[], customers:[], logs:[], silos:[] });
             const [loading, setLoading] = useState(true);
-            const [modal, setModal] = useState({ open:false, type:null, item:null, action: null }); // Added action for move
+            const [modal, setModal] = useState({ open:false, type:null, item:null, action: null }); 
             const [toast, setToast] = useState(null);
             const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
             const [searchTerm, setSearchTerm] = useState(''); 
             
-            // Filter & Sort States
             const [filterStatus, setFilterStatus] = useState('all');
             const [filterCategory, setFilterCategory] = useState('all'); 
             const [sortOption, setSortOption] = useState('default'); 
             const [startDate, setStartDate] = useState('');
             const [endDate, setEndDate] = useState('');
             
-            // View Mode State
             const [viewMode, setViewMode] = useState('list');
 
             const [salesTrendData, setSalesTrendData] = useState([]);
             const [productMixData, setProductMixData] = useState([]);
             const [orderItems, setOrderItems] = useState([]);
-
-            const menuItems = [
-                {id:'dashboard',icon:LayoutDashboard,l:'ภาพรวม'},
-                {id:'orders',icon:ClipboardList,l:'คำสั่งซื้อ'},
-                {id:'production',icon:Factory,l:'การผลิต'},
-                {id:'inventory',icon:Package,l:'คลังสินค้า'},
-                {id:'customers',icon:Users,l:'ลูกค้า'},
-                {id:'logs',icon:History,l:'ประวัติ'}
-            ];
 
             useEffect(() => {
                 signInAnonymously(auth).catch(e => console.error(e)); 
@@ -538,7 +524,6 @@
                 }
 
                 try {
-                    // Special Case: Move Location in Map View
                     if (modal.action === 'move' && modal.type === 'inventory') {
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', modal.item.id), { location: val.location });
                         setModal({ open:false, type:null, item:null }); setToast({ msg: 'ย้ายตำแหน่งเรียบร้อย!', type: 'ok' });
@@ -556,7 +541,6 @@
                             return; 
                         }
 
-                        // **FIX: Ensure displayId exists even if not in form data (for Edit)**
                         if (isEdit && modal.item && modal.item.displayId) {
                             finalData.displayId = modal.item.displayId;
                         }
@@ -565,7 +549,7 @@
                             finalData.createdAt = serverTimestamp();
                             const idSuffix = Math.floor(Math.random()*9000)+1000;
                             if (modal.type === 'orders') finalData.displayId = `#ORD-${idSuffix}`;
-                            else if (modal.type === 'production') { finalData.displayId = `#P-${idSuffix}`; finalData.status = 'รอเริ่ม'; finalData.stockAdded = false; finalData.stockDeducted = false; } // Init flags
+                            else if (modal.type === 'production') { finalData.displayId = `#P-${idSuffix}`; finalData.status = 'รอเริ่ม'; finalData.stockAdded = false; finalData.stockDeducted = false; } 
                             else if (modal.type === 'inventory') finalData.displayId = `#INV-${idSuffix}`;
                             else if (modal.type === 'shipping') { finalData.displayId = `#SHP-${idSuffix}`; finalData.status = 'กำลังส่ง'; }
                             else if (modal.type === 'customers') finalData.displayId = `#CUS-${idSuffix}`;
@@ -578,26 +562,19 @@
                                 const siloNum = parseInt(siloMatch[1]);
                                 const targetSilo = data.silos.find(s => s.number === siloNum);
                                 if (!targetSilo) throw new Error(`ไม่พบข้อมูลไซโล #${siloNum}`);
-                                
                                 const siloRef = doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id);
                                 const siloDoc = await t.get(siloRef);
-                                
                                 if (!siloDoc.exists()) throw new Error(`ไม่พบเอกสารไซโล #${siloNum}`);
-                                
                                 const current = parseNumber(siloDoc.data().amount);
                                 if (current + change < 0) throw new Error(`ข้าวในไซโล #${siloNum} ไม่พอ (ขาด ${Math.abs(current + change)})`);
-                                
                                 t.update(siloRef, { amount: current + change });
                             } else {
                                 const invItem = data.inventory.find(i => i.item === itemName);
                                 if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
-                                
                                 const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
                                 const invDoc = await t.get(invRef);
-                                
                                 const current = parseNumber(invDoc.data().stock);
                                 if (current + change < 0) throw new Error(`สต็อก ${itemName} ไม่พอ (ขาด ${Math.abs(current + change)})`);
-                                
                                 t.update(invRef, { stock: current + change });
                             }
 
@@ -620,8 +597,6 @@
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modal.item.id));
                                 oldData = oldDoc.data();
                             }
-
-                            // Safe check for stockDeducted (Handle undefined from legacy data)
                             const wasDeducted = isEdit ? (oldData.stockDeducted || false) : false;
 
                             if (wasDeducted && !isSuccess) {
@@ -651,7 +626,6 @@
                             }
                         }
                         
-                        // --- Production Logic with Input/Output ---
                         if (modal.type === 'production') {
                             const isProcessingOrDone = ['กำลังผลิต', 'สำเร็จ'].includes(val.status);
                             const isDone = val.status === 'สำเร็จ';
@@ -659,17 +633,13 @@
                             if(isEdit) {
                                 const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
                                 oldData = oldDoc.data();
-                                
-                                // **FIX: Restore tracking flags from DB AND force boolean to prevent undefined**
                                 finalData.stockAdded = !!(oldData.stockAdded);
                                 finalData.stockDeducted = !!(oldData.stockDeducted);
                             } else {
-                                // New Item: Ensure booleans
                                 finalData.stockAdded = false;
                                 finalData.stockDeducted = false;
                             }
 
-                            // 1. Input Deduction
                             const inputDeducted = finalData.stockDeducted;
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
                                 await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
@@ -683,16 +653,13 @@
                                 finalData.stockDeducted = true;
                             }
 
-                            // 2. Output Addition
                             const outputAdded = finalData.stockAdded;
-                            let targetName = val.rice; // Default to Inventory Item Name
+                            let targetName = val.rice; 
                             
-                            // Check if target is a Silo
                             if (val.targetSilo) {
                                 const targetSilo = data.silos.find(s => s.id === val.targetSilo);
                                 if (targetSilo) {
-                                    targetName = `SILO-${targetSilo.number}: ${targetSilo.rice || val.rice}`; // Construct Silo Name string for updateInventoryStock
-                                    // If Silo is empty, we update its name
+                                    targetName = `SILO-${targetSilo.number}: ${targetSilo.rice || val.rice}`; 
                                     if(parseNumber(targetSilo.amount) === 0) {
                                         t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id), { rice: val.rice });
                                         targetName = `SILO-${targetSilo.number}: ${val.rice}`;
@@ -706,21 +673,14 @@
                                 await updateInventoryStock(targetName, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = true;
                             } else if (outputAdded && !isDone && oldData) {
-                                // Revert old target
                                 let oldTargetName = oldData.rice;
-                                if (oldData.targetSilo) { // Check old data for silo
-                                     // Reconstruct old silo target name. 
-                                     // NOTE: This might be tricky if silo name changed. 
-                                     // Simplified: We assume oldData.rice holds the Rice Name.
-                                     // We need to know which silo it went to.
-                                     // Let's assume we can query the Silo by ID.
+                                if (oldData.targetSilo) { 
                                      const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
-                                     if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`; // Approximation
+                                     if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`; 
                                 }
                                 await updateInventoryStock(oldTargetName, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = false;
                             } else if (isEdit && outputAdded && isDone) {
-                                // Update
                                 await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
                                 await updateInventoryStock(targetName, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
                                 finalData.stockAdded = true;
@@ -789,6 +749,54 @@
                 return res;
             };
 
+            // Global getColumns helper inside component for context access
+            const getColumns = (currentMenu) => {
+                switch(currentMenu) {
+                    case 'orders': return [
+                        {h:'วันที่สั่ง',k:'date',render:r=>formatDate(r.date)},
+                        {h:'กำหนดส่ง',k:'dueDate',render:r=>r.dueDate ? formatDate(r.dueDate) : '-'},
+                        {h:'เลขที่',k:'displayId'},
+                        {h:'ลูกค้า',k:'customer'},
+                        {h:'ภูมิภาค',k:'region'},
+                        {h:'รายการสินค้า',k:'product', render:r => (
+                            <div className="max-w-xs">
+                                {r.items && r.items.length > 0 ? (
+                                    <ul className="list-disc list-inside text-xs">
+                                        {r.items.map((i,idx) => <li key={idx}>{i.product} ({parseNumber(i.quantity).toLocaleString()} กก.)</li>)}
+                                    </ul>
+                                ) : r.product}
+                            </div>
+                        )},
+                        {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
+                        {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 whitespace-pre-wrap min-w-[200px] block">{r.details || '-'}</span>},
+                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
+                    ]; 
+                    case 'inventory': return [
+                        {h:'ตำแหน่ง/รหัส',k:'code', render: r=><span className="font-bold text-primary-700">{r.code || '-'}</span>},
+                        {h:'สินค้า',k:'item', render: r=><span className="font-medium text-gray-800">{r.item}</span>},
+                        {h:'หมวด',k:'category', render: r=><span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500">{r.category}</span>},
+                        {h:'คงเหลือ (กก.)',k:'stock', render: r=><span className={`font-bold ${parseNumber(r.stock)<LOW_STOCK_THRESHOLD?'text-red-600':'text-gray-800'}`}>{parseNumber(r.stock).toLocaleString()}</span>},
+                        {h:'ที่เก็บ',k:'location', render: r=><span className="text-gray-500">{r.location}</span>}
+                    ];
+                    case 'production': return [
+                        {h:'เริ่ม',k:'startDateTime', render: r=> <div className="text-sm text-gray-700 flex items-center gap-2"><Clock size={14} className="text-gray-400"/> {formatDateTime(r.startDateTime)}</div>},
+                        {h:'ใช้วัตถุดิบ',k:'source',render:r=>r.source ? <div className="text-xs"><div className="font-medium text-gray-700">{r.source}</div><div className="text-gray-500">-{parseNumber(r.inputAmount).toLocaleString()} กก.</div></div> : '-'},
+                        {h:'ได้ผลผลิต',k:'rice',render:r=>r.rice ? <div className="text-xs"><div className="font-medium text-blue-700">{r.rice}</div><div className="text-blue-500">+{parseNumber(r.amount).toLocaleString()} กก.</div></div> : '-'},
+                        {h:'สถานะ',k:'status', render:r=><span className={`px-2 py-1 rounded-full text-xs font-semibold ${r.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-blue-50 text-blue-700'}`}>{r.status}</span>}
+                    ];
+                    case 'customers': return [{h:'ชื่อ',k:'name', render:r=><span className="font-medium text-gray-800">{r.name}</span>},{h:'โทร',k:'phone', render:r=><span className="text-gray-600">{r.phone}</span>},{h:'ภูมิภาค',k:'region', render:r=><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.region || '-'}</span>},{h:'ที่อยู่',k:'location', render:r=><span className="text-gray-500 truncate max-w-xs block">{r.location}</span>}];
+                    
+                    // Default = Logs
+                    default: return [
+                        {h:'เวลา',k:'createdAt', render: r=><span className="text-gray-500 text-xs">{formatDateTime(r.createdAt)}</span>},
+                        {h:'สินค้า',k:'item', render: r=><span className="font-medium">{r.item}</span>},
+                        {h:'ประเภท',k:'type', render: r=><span className={`px-2 py-0.5 rounded text-xs font-bold ${r.type==='IN'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{r.type}</span>},
+                        {h:'จำนวน',k:'change', render: r=><span className="font-mono">{r.change > 0 ? `+${r.change}` : r.change}</span>},
+                        {h:'สาเหตุ',k:'reason', render: r=><span className="text-gray-600 text-sm">{r.reason}</span>}
+                    ];
+                }
+            };
+
             // Modal Fields
             const getModalFields = () => {
                 if(modal.type === 'orders') return [
@@ -851,7 +859,7 @@
             };
 
             // --- Card View Component ---
-            function renderGrid(list, type) {
+            const renderGrid = (list, type) => {
                 return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {list.map(item => {
@@ -941,132 +949,88 @@
                 );
             };
 
-            function renderTable(type, cols, list) {
-                return (
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm whitespace-nowrap">
-                                <thead className="bg-gray-50/50 border-b border-gray-100">
-                                    <tr>
-                                        {cols.map((c,i)=><th key={i} className="px-6 py-4 font-semibold text-gray-500">{c.h}</th>)}
-                                        {menu!=='logs' && <th className="px-6 py-4 text-right font-semibold text-gray-500">จัดการ</th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {list.length === 0 ? <tr><td colSpan={cols.length+1} className="p-8 text-center text-gray-400">ไม่มีข้อมูล</td></tr> :
-                                    list.map(item => (
-                                        <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
-                                            {menu === 'orders' ? (
-                                                 <>
-                                                    <td className="px-6 py-4 text-gray-600 align-top">{formatDate(item.date)}</td>
-                                                    <td className="px-6 py-4 text-gray-600 align-top">{item.dueDate ? formatDate(item.dueDate) : '-'}</td>
-                                                    <td className="px-6 py-4 font-medium text-primary-600 align-top">{item.displayId}</td>
-                                                    <td className="px-6 py-4 text-gray-800 font-medium align-top">{item.customer}</td>
-                                                    <td className="px-6 py-4 text-gray-600 align-top">
-                                                        {data.customers.find(c => c.name === item.customer)?.region || '-'}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-gray-600 align-top">
-                                                        <div className="max-w-xs">
-                                                            {item.items && item.items.length > 0 ? (
-                                                                <ul className="list-disc list-inside text-xs">
-                                                                    {item.items.map((i,idx) => <li key={idx}>{i.product} ({parseNumber(i.quantity).toLocaleString()} กก.)</li>)}
-                                                                </ul>
-                                                            ) : item.product}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 font-bold text-gray-800 align-top">{formatCurrency(parseNumber(item.amount))}</td>
-                                                    {/* Details Column (Fixed) */}
-                                                    <td className="px-6 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap min-w-[200px]">
-                                                        {item.details || '-'}
-                                                    </td>
-                                                    <td className="px-6 py-4 align-top"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>{item.status}</span></td>
-                                                 </>
-                                            ) : (
-                                                cols.map((c, i) => <td key={i} className="px-6 py-4 text-gray-700 align-top">{c.render ? c.render(item) : item[c.k]}</td>)
-                                            )}
-                                            
-                                            {menu!=='logs' && (
-                                                <td className="px-6 py-4 text-right align-top">
-                                                    <div className="flex items-center justify-end gap-1">
-                                                        {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><Printer size={16}/></button>}
-                                                        <button onClick={()=>setModal({open:true, type: item.isSilo ? 'silo' : type, item: item.isSilo ? item.originalSilo : item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
-                                                        {!item.isSilo && <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>}
+            const renderTable = (type, cols, list) => (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap">
+                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                <tr>
+                                    {cols.map((c,i)=><th key={i} className="px-6 py-4 font-semibold text-gray-500">{c.h}</th>)}
+                                    {menu!=='logs' && <th className="px-6 py-4 text-right font-semibold text-gray-500">จัดการ</th>}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {list.length === 0 ? <tr><td colSpan={cols.length+1} className="p-8 text-center text-gray-400">ไม่มีข้อมูล</td></tr> :
+                                list.map(item => (
+                                    <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                                        {menu === 'orders' ? (
+                                             <>
+                                                <td className="px-6 py-4 text-gray-600 align-top">{formatDate(item.date)}</td>
+                                                <td className="px-6 py-4 text-gray-600 align-top">{item.dueDate ? formatDate(item.dueDate) : '-'}</td>
+                                                <td className="px-6 py-4 font-medium text-primary-600 align-top">{item.displayId}</td>
+                                                <td className="px-6 py-4 text-gray-800 font-medium align-top">{item.customer}</td>
+                                                <td className="px-6 py-4 text-gray-600 align-top">
+                                                    {data.customers.find(c => c.name === item.customer)?.region || '-'}
+                                                </td>
+                                                <td className="px-6 py-4 text-gray-600 align-top">
+                                                    <div className="max-w-xs">
+                                                        {item.items && item.items.length > 0 ? (
+                                                            <ul className="list-disc list-inside text-xs">
+                                                                {item.items.map((i,idx) => <li key={idx}>{i.product} ({parseNumber(i.quantity).toLocaleString()} กก.)</li>)}
+                                                            </ul>
+                                                        ) : item.product}
                                                     </div>
                                                 </td>
-                                            )}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                <td className="px-6 py-4 font-bold text-gray-800 align-top">{formatCurrency(parseNumber(item.amount))}</td>
+                                                {/* Details Column (Fixed) */}
+                                                <td className="px-6 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap min-w-[200px]">
+                                                    {item.details || '-'}
+                                                </td>
+                                                <td className="px-6 py-4 align-top"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-50 text-yellow-700 border border-yellow-100'}`}>{item.status}</span></td>
+                                             </>
+                                        ) : (
+                                            cols.map((c, i) => <td key={i} className="px-6 py-4 text-gray-700 align-top">{c.render ? c.render(item) : item[c.k]}</td>)
+                                        )}
+                                        
+                                        {menu!=='logs' && (
+                                            <td className="px-6 py-4 text-right align-top">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    {type==='orders' && <button onClick={()=>printOrder(item)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><Printer size={16}/></button>}
+                                                    <button onClick={()=>setModal({open:true, type: item.isSilo ? 'silo' : type, item: item.isSilo ? item.originalSilo : item})} className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={16}/></button>
+                                                    {!item.isSilo && <button onClick={()=>handleDelete(item.id, type)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>}
+                                                </div>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                );
-            };
-
-            const getColumns = (currentMenu) => {
-                switch(currentMenu) {
-                    case 'orders': return [
-                        {h:'วันที่สั่ง',k:'date',render:r=>formatDate(r.date)},
-                        {h:'กำหนดส่ง',k:'dueDate',render:r=>r.dueDate ? formatDate(r.dueDate) : '-'},
-                        {h:'เลขที่',k:'displayId'},
-                        {h:'ลูกค้า',k:'customer'},
-                        {h:'ภูมิภาค',k:'region'},
-                        {h:'รายการสินค้า',k:'product', render:r => (
-                            <div className="max-w-xs">
-                                {r.items && r.items.length > 0 ? (
-                                    <ul className="list-disc list-inside text-xs">
-                                        {r.items.map((i,idx) => <li key={idx}>{i.product} ({parseNumber(i.quantity).toLocaleString()} กก.)</li>)}
-                                    </ul>
-                                ) : r.product}
-                            </div>
-                        )},
-                        {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
-                        {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 whitespace-pre-wrap min-w-[200px] block">{r.details || '-'}</span>},
-                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
-                    ]; 
-                    case 'inventory': return [
-                        {h:'ตำแหน่ง/รหัส',k:'code'},
-                        {h:'สินค้า',k:'item'},
-                        {h:'หมวด',k:'category'},
-                        {h:'คงเหลือ (กก.)',k:'stock'},
-                        {h:'ที่เก็บ',k:'location'}
-                    ];
-                    case 'production': return [
-                        {h:'เริ่ม',k:'startDateTime'},
-                        {h:'ใช้วัตถุดิบ',k:'source',render:r=>r.source ? <div className="text-xs"><div className="font-medium text-gray-700">{r.source}</div><div className="text-gray-500">-{parseNumber(r.inputAmount).toLocaleString()} กก.</div></div> : '-'},
-                        {h:'ได้ผลผลิต',k:'rice',render:r=>r.rice ? <div className="text-xs"><div className="font-medium text-blue-700">{r.rice}</div><div className="text-blue-500">+{parseNumber(r.amount).toLocaleString()} กก.</div></div> : '-'},
-                        {h:'สถานะ',k:'status'}
-                    ];
-                    case 'customers': return [{h:'ชื่อ',k:'name'},{h:'โทร',k:'phone'},{h:'ภูมิภาค',k:'region'},{h:'ที่อยู่',k:'location'}];
-                    default: return [{h:'เวลา',k:'createdAt'},{h:'สินค้า',k:'item'},{h:'ประเภท',k:'type'},{h:'จำนวน',k:'change'},{h:'สาเหตุ',k:'reason'}];
-                }
-            };
+                </div>
+            );
 
             return (
                 <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
                     {toast && <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)} />}
                     <Modal isOpen={modal.open} onClose={()=>setModal({open:false})} title={modal.item?(modal.type==='silo'?'แก้ไขสถานะไซโล':'แก้ไขรายการ'):'เพิ่มรายการใหม่'} size={modal.type === 'orders' ? 'lg' : 'md'}>
-                        {/* Form Content */}
                         <form onSubmit={handleSave} className="space-y-4">
                             {getModalFields().map(f => (
                                 <div key={f.name}>
-                                    {f.name === 'product' || f.name === 'quantity' || f.name === 'amount' ? null : ( 
-                                        <>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                                            {f.type==='select'?
-                                            <div className="relative">
-                                                <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
-                                                    {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
-                                                </select>
-                                                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
-                                            </div>
-                                            :f.type==='textarea'?
-                                            <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
-                                            :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
-                                        </>
-                                    )}
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                                    {f.type==='select'?
+                                    <div className="relative">
+                                        <select name={f.name} className="w-full pl-3 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all appearance-none" defaultValue={modal.item?.[f.name]}>
+                                            {f.options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+                                        </select>
+                                        <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500"><ChevronRight size={16} className="rotate-90"/></div>
+                                    </div>
+                                    // Added Textarea logic
+                                    :f.type==='textarea'?
+                                    <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
+                                    :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
                                 </div>
                             ))}
+
                             {/* Multi-Item Order Section */}
                             {modal.type === 'orders' && (
                                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -1117,11 +1081,12 @@
                         </form>
                     </Modal>
 
-                    {/* Mobile Menu Overlay & Sidebar (Same as before) */}
-                    {/* ... (Kept as is for brevity, assume standard layout) ... */}
+                    {/* Mobile Menu Overlay */}
                     {mobileMenuOpen && (
                         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm" onClick={()=>setMobileMenuOpen(false)}></div>
                     )}
+
+                    {/* Sidebar */}
                     <div className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white shadow-xl lg:shadow-none border-r border-gray-200 transform transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} flex flex-col`}>
                         <div className="h-20 flex items-center justify-center border-b border-gray-100">
                             <div className="flex items-center gap-3">
