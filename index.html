@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Fixed Timestamp Error)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Transaction Fixed)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -142,6 +142,18 @@
             if (riceName.includes('หัก') || riceName.includes('ปลาย')) return 'ข้าวหัก/ปลาย';
             if (riceName.toLowerCase().includes('reject') || riceName.includes('ไก่')) return 'Reject/อื่นๆ';
             return 'ข้าวสาร';
+        };
+
+        const safeId = (id) => {
+            if (id === null || id === undefined) return '';
+            if (typeof id === 'string') return id;
+            if (typeof id === 'number') return String(id);
+            if (typeof id === 'object') {
+                if (id.id) return String(id.id);
+                // Fallback for objects that shouldn't be IDs
+                return ''; 
+            }
+            return String(id);
         };
 
         const downloadCSV = (data, filename) => {
@@ -444,13 +456,16 @@
                 checkAndSeedSilos();
 
                 const unsubs = refs.map(({key, q}) => onSnapshot(q, snap => {
-                    let items = snap.docs.map(d => ({id:d.id, ...d.data()}));
+                    let items = snap.docs.map(d => ({...d.data(), id: String(d.id)}));
                     
                     if(key === 'inventory') {
                          items.forEach(item => {
                              if(item.location && typeof item.location === 'string' && item.location.trim().startsWith('.')) {
                                  const cleanLocation = item.location.trim().replace(/^\.+/, '');
-                                 updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { location: cleanLocation });
+                                 const safeDocId = safeId(item.id);
+                                 if (safeDocId) {
+                                     updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', safeDocId), { location: cleanLocation });
+                                 }
                                  item.location = cleanLocation;
                              }
                           });
@@ -526,9 +541,10 @@
             }, [menu]);
 
             const handleSave = async (e) => {
-                e.preventDefault(); const val = Object.fromEntries(new FormData(e.target).entries());
+                e.preventDefault(); 
+                const val = Object.fromEntries(new FormData(e.target).entries());
                 setToast({ msg: 'กำลังบันทึก...', type: 'info' });
-                
+
                 if (modal.type === 'orders') {
                     const validItems = orderItems.filter(i => i.product && i.quantity > 0);
                     if (validItems.length === 0) {
@@ -544,26 +560,47 @@
 
                 try {
                     if (modal.action === 'move' && modal.type === 'inventory') {
-                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', modal.item.id), { location: val.location });
-                        setModal({ open:false, type:null, item:null }); setToast({ msg: 'ย้ายตำแหน่งเรียบร้อย!', type: 'ok' });
-                        return;
+                         const docId = safeId(modal.item.id);
+                         if(!docId) throw new Error("Invalid Document ID");
+                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', docId), { location: val.location });
+                         setModal({ open:false, type:null, item:null }); setToast({ msg: 'ย้ายตำแหน่งเรียบร้อย!', type: 'ok' });
+                         return;
                     }
 
                     const colName = modal.type === 'logs' ? 'stockLogs' : modal.type; 
                     const isEdit = !!modal.item;
+
                     await runTransaction(db, async (t) => {
                         let finalData = { ...val, updatedAt: serverTimestamp() };
                         
+                        // Silo direct edit
                         if (modal.type === 'silo') {
-                            finalData = { ...modal.item, ...val, updatedAt: serverTimestamp() }; 
-                            t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', modal.item.id), finalData);
-                            return; 
+                            const siloId = safeId(modal.item.id);
+                            if(!siloId) throw new Error("Invalid Silo ID");
+                            t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', siloId), {
+                                rice: val.rice,
+                                amount: val.amount,
+                                capacity: val.capacity,
+                                updatedAt: serverTimestamp()
+                            });
+                            return;
                         }
 
+                        // --- 1. PRE-READ (Determine if editing and get old data) ---
+                        let oldData = null;
+                        let oldDocRef = null;
+                        
+                        // Setup basic fields for new items
                         if (isEdit && modal.item && modal.item.displayId) {
                             finalData.displayId = modal.item.displayId;
+                            // Pre-calculate the reference for reading if needed
+                            if (colName === 'orders' || colName === 'production') {
+                                 const editId = safeId(modal.item.id);
+                                 if (editId) {
+                                     oldDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, editId);
+                                 }
+                            }
                         }
-
                         if (!isEdit) {
                             finalData.createdAt = serverTimestamp();
                             const idSuffix = Math.floor(Math.random()*9000)+1000;
@@ -574,84 +611,56 @@
                             else if (modal.type === 'customers') finalData.displayId = `#CUS-${idSuffix}`;
                         }
 
-                        const updateInventoryStock = async (itemName, change, reason, refId) => {
-                            const siloMatch = itemName.match(/^SILO-(\d+):\s+(.+)$/);
-
-                            if (siloMatch) {
-                                const siloNum = parseInt(siloMatch[1]);
-                                const targetSilo = data.silos.find(s => s.number === siloNum);
-                                if (!targetSilo) throw new Error(`ไม่พบข้อมูลไซโล #${siloNum}`);
-                                const siloRef = doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id);
-                                const siloDoc = await t.get(siloRef);
-                                if (!siloDoc.exists()) throw new Error(`ไม่พบเอกสารไซโล #${siloNum}`);
-                                const current = parseNumber(siloDoc.data().amount);
-                                if (current + change < 0) throw new Error(`ข้าวในไซโล #${siloNum} ไม่พอ (ขาด ${Math.abs(current + change)})`);
-                                t.update(siloRef, { amount: current + change });
-                            } else {
-                                const invItem = data.inventory.find(i => i.item === itemName);
-                                if (!invItem) throw new Error(`ไม่พบสินค้า: ${itemName}`);
-                                const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', invItem.id);
-                                const invDoc = await t.get(invRef);
-                                const current = parseNumber(invDoc.data().stock);
-                                if (current + change < 0) throw new Error(`สต็อก ${itemName} ไม่พอ (ขาด ${Math.abs(current + change)})`);
-                                t.update(invRef, { stock: current + change });
+                        // --- 2. EXECUTE READS (Must come first) ---
+                        
+                        // 2a. Read Main Document (if editing orders/production to check status change)
+                        if (oldDocRef) {
+                            const snap = await t.get(oldDocRef);
+                            if (snap.exists()) {
+                                oldData = snap.data();
                             }
+                        }
 
-                            const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
-                            t.set(logRef, {
-                                item: itemName,
-                                change: change,
-                                type: change > 0 ? 'IN' : 'OUT',
-                                refId: refId || 'UNKNOWN',
-                                reason: reason,
-                                createdAt: serverTimestamp()
-                            });
+                        // 2b. Logic Calculation (Determine what inventory to read)
+                        const stockActions = []; 
+                        const siloNameUpdates = []; 
+
+                        const addAction = (item, qty, reason) => {
+                            if(!item || !qty) return;
+                            stockActions.push({ item, change: parseFloat(qty), reason });
                         };
 
+                        // Logic for Orders
                         if (modal.type === 'orders') {
                             const newItems = val.items;
                             const isSuccess = val.status === 'สำเร็จ';
-                            let oldData = null;
-                            if (isEdit) {
-                                const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modal.item.id));
-                                oldData = oldDoc.data();
-                            }
-                            const wasDeducted = isEdit ? (oldData.stockDeducted || false) : false;
+                            const wasDeducted = isEdit && oldData ? (oldData.stockDeducted || false) : false;
 
                             if (wasDeducted && !isSuccess) {
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
-                                for (const item of oldItems) {
-                                    await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
-                                }
+                                oldItems.forEach(i => addAction(i.product, parseNumber(i.quantity), `คืนสต็อก (แก้ไขสถานะ) ${finalData.displayId}`));
                                 finalData.stockDeducted = false;
                             }
                             else if (!wasDeducted && isSuccess) {
-                                for (const item of newItems) {
-                                    await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ขาย) ${finalData.displayId}`, finalData.displayId);
-                                }
+                                newItems.forEach(i => addAction(i.product, -parseNumber(i.quantity), `ตัดสต็อก (ขาย) ${finalData.displayId}`));
                                 finalData.stockDeducted = true;
                             }
                             else if (wasDeducted && isSuccess) {
                                 const oldItems = oldData.items || [{product: oldData.product, quantity: oldData.quantity}];
-                                for (const item of oldItems) {
-                                    await updateInventoryStock(item.product, parseNumber(item.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
-                                }
-                                for (const item of newItems) {
-                                    await updateInventoryStock(item.product, -parseNumber(item.quantity), `ตัดสต็อก (ปรับปรุง) ${finalData.displayId}`, finalData.displayId);
-                                }
+                                oldItems.forEach(i => addAction(i.product, parseNumber(i.quantity), `คืนสต็อก (ปรับปรุง) ${finalData.displayId}`));
+                                newItems.forEach(i => addAction(i.product, -parseNumber(i.quantity), `ตัดสต็อก (ปรับปรุง) ${finalData.displayId}`));
                                 finalData.stockDeducted = true;
                             } else {
                                 finalData.stockDeducted = wasDeducted;
                             }
                         }
-                        
+
+                        // Logic for Production
                         if (modal.type === 'production') {
                             const isProcessingOrDone = ['กำลังผลิต', 'สำเร็จ'].includes(val.status);
                             const isDone = val.status === 'สำเร็จ';
-                            let oldData = null;
-                            if(isEdit) {
-                                const oldDoc = await t.get(doc(db, 'artifacts', appId, 'public', 'data', 'production', modal.item.id));
-                                oldData = oldDoc.data();
+                            
+                            if (isEdit && oldData) {
                                 finalData.stockAdded = !!(oldData.stockAdded);
                                 finalData.stockDeducted = !!(oldData.stockDeducted);
                             } else {
@@ -661,66 +670,152 @@
 
                             const inputDeducted = finalData.stockDeducted;
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
-                                await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`, finalData.displayId);
+                                addAction(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`);
                                 finalData.stockDeducted = true;
-                            } else if (inputDeducted && !isProcessingOrDone && oldData && oldData.source && oldData.inputAmount) {
-                                await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `คืนวัตถุดิบ (ยกเลิกผลิต) ${finalData.displayId}`, finalData.displayId);
+                            } else if (inputDeducted && !isProcessingOrDone && oldData) {
+                                addAction(oldData.source, parseNumber(oldData.inputAmount), `คืนวัตถุดิบ (ยกเลิกผลิต) ${finalData.displayId}`);
                                 finalData.stockDeducted = false;
                             } else if (isEdit && inputDeducted && isProcessingOrDone) {
-                                if(oldData.source && oldData.inputAmount) await updateInventoryStock(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
-                                if(val.source && val.inputAmount) await updateInventoryStock(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`, finalData.displayId);
+                                if(oldData.source) addAction(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`);
+                                if(val.source) addAction(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`);
                                 finalData.stockDeducted = true;
                             }
 
                             const outputAdded = finalData.stockAdded;
-                            let targetName = val.rice; 
-                            
+                            let targetName = val.rice;
                             if (val.targetSilo) {
                                 const targetSilo = data.silos.find(s => s.id === val.targetSilo);
                                 if (targetSilo) {
-                                    targetName = `SILO-${targetSilo.number}: ${targetSilo.rice || val.rice}`; 
                                     if(parseNumber(targetSilo.amount) === 0) {
-                                        t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', targetSilo.id), { rice: val.rice });
-                                        targetName = `SILO-${targetSilo.number}: ${val.rice}`;
-                                    } else if (targetSilo.rice && targetSilo.rice !== val.rice) {
-                                        throw new Error(`ไซโล #${targetSilo.number} มีข้าว "${targetSilo.rice}" อยู่แล้ว ไม่สามารถเติม "${val.rice}" ได้`);
+                                         targetName = `SILO-${targetSilo.number}: ${val.rice}`;
+                                    } else {
+                                         targetName = `SILO-${targetSilo.number}: ${targetSilo.rice}`;
+                                         if(targetSilo.rice !== val.rice) throw new Error(`ไซโล #${targetSilo.number} มีข้าว ${targetSilo.rice} อยู่แล้ว`);
                                     }
                                 }
                             }
 
-                            if (!outputAdded && isDone) {
-                                await updateInventoryStock(targetName, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`, finalData.displayId);
+                            if (!outputAdded && isDone && targetName) {
+                                addAction(targetName, parseNumber(val.amount), `รับเข้า (ผลิตเสร็จ) ${finalData.displayId}`);
                                 finalData.stockAdded = true;
                             } else if (outputAdded && !isDone && oldData) {
                                 let oldTargetName = oldData.rice;
-                                if (oldData.targetSilo) { 
-                                     const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
-                                     if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`; 
+                                if(oldData.targetSilo) {
+                                    const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
+                                    if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`;
                                 }
-                                await updateInventoryStock(oldTargetName, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`, finalData.displayId);
+                                addAction(oldTargetName, -parseNumber(oldData.amount), `ดึงกลับ (แก้ไขสถานะ) ${finalData.displayId}`);
                                 finalData.stockAdded = false;
                             } else if (isEdit && outputAdded && isDone) {
-                                await updateInventoryStock(oldData.rice, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
-                                await updateInventoryStock(targetName, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`, finalData.displayId);
+                                 let oldTargetName = oldData.rice;
+                                if(oldData.targetSilo) {
+                                    const oldSilo = data.silos.find(s => s.id === oldData.targetSilo);
+                                    if(oldSilo) oldTargetName = `SILO-${oldSilo.number}: ${oldSilo.rice}`;
+                                }
+                                addAction(oldTargetName, -parseNumber(oldData.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`);
+                                addAction(targetName, parseNumber(val.amount), `ปรับปรุงผลผลิต ${finalData.displayId}`);
                                 finalData.stockAdded = true;
+                            }
+                            
+                            if (val.targetSilo && typeof val.targetSilo === 'string' && parseNumber(data.silos.find(s=>s.id===val.targetSilo)?.amount) === 0) {
+                                 siloNameUpdates.push({ id: val.targetSilo, rice: val.rice });
                             }
                         }
 
-                        if (isEdit) t.update(doc(db, 'artifacts', appId, 'public', 'data', colName, modal.item.id), finalData);
-                        else t.set(doc(collection(db, 'artifacts', appId, 'public', 'data', colName)), finalData);
+                        // 2c. Read Inventory Items (Based on calculated actions)
+                        const uniqueItems = [...new Set(stockActions.map(a => a.item))];
+                        const itemDocs = {};
+
+                        for (const name of uniqueItems) {
+                            const siloMatch = name.match(/^SILO-(\d+)(?::\s+(.+))?$/);
+                            let ref, type;
+                            if (siloMatch) {
+                                const siloNum = parseInt(siloMatch[1]);
+                                const silo = data.silos.find(s => s.number === siloNum);
+                                if (!silo) throw new Error(`ไม่พบไซโล ${siloNum}`);
+                                const safeSiloId = safeId(silo.id);
+                                if (!safeSiloId) throw new Error(`Invalid Silo ID for #${siloNum}`);
+                                ref = doc(db, 'artifacts', appId, 'public', 'data', 'silos', safeSiloId);
+                                type = 'silo';
+                            } else {
+                                const item = data.inventory.find(i => i.item === name);
+                                if (!item) throw new Error(`ไม่พบสินค้า ${name} ในคลัง`);
+                                const safeItemId = safeId(item.id);
+                                if (!safeItemId) throw new Error(`Invalid Inventory ID for ${name}`);
+                                ref = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', safeItemId);
+                                type = 'inventory';
+                            }
+                            // EXECUTE READ
+                            const snap = await t.get(ref);
+                            if (!snap.exists()) throw new Error(`Document for ${name} missing`);
+                            itemDocs[name] = { ref, doc: snap, type, currentStock: parseNumber(snap.data()[type==='silo'?'amount':'stock']) };
+                        }
+
+                        // --- 3. EXECUTE WRITES (Must come last) ---
+                        
+                        siloNameUpdates.forEach(u => {
+                            const uId = safeId(u.id);
+                            if (uId) {
+                                t.update(doc(db, 'artifacts', appId, 'public', 'data', 'silos', uId), { rice: u.rice });
+                            }
+                        });
+
+                        const itemChanges = {};
+                        stockActions.forEach(action => {
+                            if(!itemChanges[action.item]) itemChanges[action.item] = 0;
+                            itemChanges[action.item] += action.change;
+                            
+                            const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'stockLogs'));
+                            t.set(logRef, {
+                                item: action.item,
+                                change: action.change,
+                                type: action.change > 0 ? 'IN' : 'OUT',
+                                refId: finalData.displayId || 'UNKNOWN',
+                                reason: action.reason,
+                                createdAt: serverTimestamp()
+                            });
+                        });
+
+                        for (const [name, change] of Object.entries(itemChanges)) {
+                            const itemData = itemDocs[name];
+                            const newStock = itemData.currentStock + change;
+                            if (newStock < 0) throw new Error(`สต็อก ${name} ไม่พอ (ขาด ${Math.abs(newStock)})`);
+                            
+                            if (itemData.type === 'silo') {
+                                t.update(itemData.ref, { amount: newStock });
+                            } else {
+                                t.update(itemData.ref, { stock: newStock });
+                            }
+                        }
+
+                        if (isEdit) {
+                            const editId = safeId(modal.item.id);
+                            if(!editId) throw new Error("Invalid Document ID for Update");
+                            t.update(doc(db, 'artifacts', appId, 'public', 'data', colName, editId), finalData);
+                        } else {
+                            t.set(doc(collection(db, 'artifacts', appId, 'public', 'data', colName)), finalData);
+                        }
+
                     });
                     setModal({ open:false, type:null, item:null }); setToast({ msg: 'บันทึกสำเร็จ!', type: 'ok' }); setTimeout(() => setToast(null), 3000);
-                } catch (err) { alert(err.message); setToast(null); }
+                } catch (err) { console.error(err); alert(err.message); setToast(null); }
             };
 
             const handleDelete = async (id, type) => {
                 if(!confirm("ยืนยันการลบ?")) return;
-                try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', type, id)); setToast({ msg: 'ลบแล้ว', type: 'ok' }); setTimeout(() => setToast(null), 3000); } catch(e) { alert(e.message); }
+                try { 
+                    const safeDocId = safeId(id);
+                    if(!safeDocId) throw new Error("Invalid Document ID");
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', type, safeDocId)); 
+                    setToast({ msg: 'ลบแล้ว', type: 'ok' }); setTimeout(() => setToast(null), 3000); 
+                } catch(e) { alert(e.message); }
             };
 
             const lowStock = data.inventory.filter(i => parseNumber(i.stock) < LOW_STOCK_THRESHOLD);
             const sales = data.orders.filter(o => o.status === 'สำเร็จ').reduce((s, o) => s + parseNumber(o.amount), 0);
 
+            // ... (rest of the code is unchanged) ...
+            
             // Merged Data Logic for Inventory
             const getInventoryData = () => {
                 const siloItems = data.silos.filter(s => s.rice && s.amount > 0).map(s => ({
@@ -788,7 +883,7 @@
                         )},
                         {h:'รวมเงิน',k:'amount',render:r=>formatCurrency(parseNumber(r.amount))},
                         {h:'รายละเอียด',k:'details', render:r=><span className="text-xs text-gray-500 whitespace-pre-wrap min-w-[200px] block">{r.details || '-'}</span>},
-                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
+                        {h:'สถานะ',k:'status',render:r=><span className={`px-2 rounded text-xs ${r.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-800'}`}>{r.status}</span>}
                     ]; 
                     case 'inventory': return [
                         {h:'ตำแหน่ง/รหัส',k:'code', render: r=><span className="font-bold text-primary-700">{r.code || '-'}</span>},
