@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Final Fixed)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Stable)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -581,6 +581,120 @@
                 return Array.from(products).sort();
             }, [data.orders]);
 
+            // ** HELPER FUNCTION FOR INPUT VALUES **
+            const formatInputValue = (val, type) => {
+                 if (val && typeof val === 'object' && val.seconds) { // It's a Timestamp
+                    val = new Date(val.seconds * 1000);
+                }
+                
+                if (type === 'date') {
+                    if (val instanceof Date) return val.toISOString().split('T')[0];
+                    if (!val) return ''; // Default to empty string for date
+                    // If string, assume it's already ISO or let it be
+                }
+                if (type === 'datetime-local') {
+                    if (val instanceof Date) {
+                        const d = new Date(val);
+                        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                        return d.toISOString().slice(0, 16);
+                    }
+                    if (!val) return getLocalISOString();
+                }
+                return val || '';
+            }
+            
+            // --- Helper Functions Inside App ---
+            
+            const addOrderItem = () => setOrderItems([...orderItems, {product: '', quantity: '', amount: ''}]);
+            const removeOrderItem = (index) => setOrderItems(orderItems.filter((_, i) => i !== index));
+            const updateOrderItem = (index, field, value) => {
+                const newItems = [...orderItems];
+                newItems[index][field] = value;
+                setOrderItems(newItems);
+            };
+
+            const getModalFields = () => {
+                if(modal.type === 'yield') return [
+                    {name:'date',type:'date',label:'วันที่บันทึก'},
+                    {name:'shift',type:'select',label:'กะการทำงาน',options:['กะเช้า (08:00 - 16:00)','กะบ่าย (16:00 - 24:00)','กะดึก (00:00 - 08:00)']},
+                    {name:'headRice',type:'number',label:'น้ำหนักข้าวต้น (กก.)',placeholder:'0'},
+                    {name:'brokenRice',type:'number',label:'น้ำหนักข้าวหัก (กก.)',placeholder:'0'},
+                    {name:'tips',type:'number',label:'น้ำหนักข้าวปลาย/ปลายข้าว (กก.)',placeholder:'0'},
+                    {name:'reject',type:'number',label:'น้ำหนักข้าว Reject/แกลบ/รำ (กก.)',placeholder:'0'}
+                ];
+                
+                if(modal.type === 'orders') return [
+                    {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
+                    {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
+                    {name:'customer',label:'ลูกค้า'},
+                    {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
+                    {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
+                ];
+                
+                if(modal.type === 'production') return [
+                    {name:'startDateTime',type:'datetime-local',label:'เริ่มผลิต (วัน-เวลา)'},
+                    {name:'endDateTime',type:'datetime-local',label:'สิ้นสุด (วัน-เวลา)'},
+                    {name:'stage',type:'select',label:'ขั้นตอน',options:['สีข้าว','คัดแยก','บรรจุ (Packing)']}, // Highlight Packing
+                    // Input Section
+                    {name:'source',type:'select',label:'ใช้วัตถุดิบหลัก (ข้าวจาก Silo/คลัง)',options:[
+                         ...data.silos.filter(s=>s.rice).map(s=>({value:`SILO-${s.number}: ${s.rice}`, label:`ไซโล #${s.number} ${s.rice} (${parseNumber(s.amount)} กก.)`})),
+                         ...data.inventory.filter(i=>!i.isSilo).map(i=>({value:i.item, label:`${i.item} (${i.stock})`}))
+                    ]},
+                    {name:'inputAmount',type:'number',label:'ปริมาณข้าวที่ใช้ (กก.)'},
+                    
+                    // NEW: Packaging Section
+                    {name:'packaging', type:'select', label:'เบิกกระสอบ/ถุงจากคลัง (ถ้ามี)', options:[
+                        {value:'', label:'- ไม่ระบุ -'},
+                        ...data.inventory.filter(i => i.category === 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์').map(i => ({value: i.item, label: `${i.item} (เหลือ ${i.stock})`}))
+                    ]},
+                    
+                    // NEW: Pack Size Logic
+                    {name:'packSize', type:'select', label:'ขนาดบรรจุ (กก./ถุง)', options:[
+                        {value:'', label:'- ไม่ระบุ (ระบุน้ำหนักรวมเอง) -'},
+                        {value:'1000', label:'จัมโบ้ (1,000 กก.)'},
+                        {value:'50', label:'กระสอบใหญ่ (50 กก.)'},
+                        {value:'49', label:'กระสอบส่งออก (49 กก.)'},
+                        {value:'48', label:'กระสอบ (48 กก.)'},
+                        {value:'45', label:'กระสอบ (45 กก.)'},
+                        {value:'40', label:'กระสอบ (40 กก.)'},
+                        {value:'15', label:'ถุง (15 กก.)'},
+                        {value:'5', label:'ถุง (5 กก.)'},
+                        {value:'1', label:'ถุง (1 กก.)'}
+                    ]},
+                    {name:'packagingAmount', type:'number', label:'จำนวนถุงที่ผลิต (ใบ)'},
+
+                    // Output Section
+                    {name:'rice',type:'select',label:'ได้สินค้า (Output)',options:data.inventory.filter(i=>!i.isSilo && i.category !== 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์').map(i=>i.item)},
+                    
+                    // Modified Label to indicate auto-calc
+                    {name:'amount',type:'number',label:'น้ำหนักรวมที่ได้ (กก.) *คำนวณอัตโนมัติถ้าเลือกขนาด'},
+                    
+                    // Target Destination
+                    {name:'targetSilo', type:'select', label:'เก็บเข้าที่ (Destination)', options:[
+                        {value: '', label: 'คลังสินค้า (ปกติ)'},
+                        ...data.silos.map(s => ({value: s.id, label: `ไซโล #${s.number} ${s.rice ? `(${s.rice})` : '(ว่าง)'}`}))
+                    ]},
+                    {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
+                ];
+                
+                if(modal.type === 'inventory') return [
+                    {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1, WA1, BAG-01'},
+                    {name:'item',label:'ชื่อสินค้า'},
+                    {name:'category',type:'select',label:'หมวด',options:['ข้าวสาร','ข้าวเปลือก','ข้าวหัก/ปลาย','Reject/อื่นๆ', 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์']}, // Added Category
+                    {name:'stock',type:'number',label:'คงเหลือ (กก. หรือ จำนวนชิ้น)'},
+                    {name:'location',label:'ที่เก็บ'}
+                ];
+                
+                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},{name:'location',label:'ที่อยู่'}];
+                
+                if(modal.type === 'silo') return [
+                    {name:'rice', label:`ข้าวในถัง (Silo ${modal.item.number})`, type:'text', placeholder:'เช่น ข้าวเปลือกหอมมะลิ (ว่างไว้ถ้าไม่มี)'},
+                    {name:'amount', label:'ปริมาณปัจจุบัน (กก.)', type:'number'},
+                    {name:'capacity', label:'ความจุถัง (กก.)', type:'number'}
+                ];
+                return [];
+            };
+
             const handleSave = async (e) => {
                 e.preventDefault(); 
                 const val = Object.fromEntries(new FormData(e.target).entries());
@@ -594,6 +708,24 @@
                     val.product = validItems.length === 1 ? validItems[0].product : `(หลายรายการ: ${validItems.length})`;
                     val.quantity = validItems.reduce((s, i) => s + parseNumber(i.quantity), 0);
                     val.amount = validItems.reduce((s, i) => s + parseNumber(i.amount), 0);
+                }
+                
+                // ** NEW: Auto-Calculate Amount from Pack Size **
+                if (modal.type === 'production') {
+                    const pSize = parseNumber(val.packSize);
+                    const pQty = parseNumber(val.packagingAmount);
+                    
+                    // If Pack Size and Qty are provided, force calculation of Total Amount
+                    if (pSize > 0 && pQty > 0) {
+                        val.amount = pSize * pQty;
+                    }
+                    
+                    // Validation
+                    if (!val.amount || parseNumber(val.amount) <= 0) {
+                         alert("กรุณาระบุจำนวนถุง หรือ น้ำหนักรวม"); 
+                         setToast(null); 
+                         return; 
+                    }
                 }
 
                 // ** YIELD CALCULATION LOGIC **
@@ -713,6 +845,7 @@
                             }
 
                             const inputDeducted = finalData.stockDeducted;
+                            // 1. Deduct Main Input (Rice)
                             if (!inputDeducted && isProcessingOrDone && val.source && val.inputAmount) {
                                 addAction(val.source, -parseNumber(val.inputAmount), `ตัดวัตถุดิบ (ผลิต) ${finalData.displayId}`);
                                 finalData.stockDeducted = true;
@@ -723,6 +856,16 @@
                                 if(oldData.source) addAction(oldData.source, parseNumber(oldData.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`);
                                 if(val.source) addAction(val.source, -parseNumber(val.inputAmount), `ปรับปรุงวัตถุดิบ ${finalData.displayId}`);
                                 finalData.stockDeducted = true;
+                            }
+                            
+                            // 2. Deduct Packaging (If specified)
+                            if (!inputDeducted && isProcessingOrDone && val.packaging && val.packagingAmount) {
+                                addAction(val.packaging, -parseNumber(val.packagingAmount), `ตัดบรรจุภัณฑ์ (ผลิต) ${finalData.displayId}`);
+                            } else if (inputDeducted && !isProcessingOrDone && oldData && oldData.packaging) {
+                                addAction(oldData.packaging, parseNumber(oldData.packagingAmount), `คืนบรรจุภัณฑ์ (ยกเลิกผลิต) ${finalData.displayId}`);
+                            } else if (isEdit && inputDeducted && isProcessingOrDone) {
+                                if(oldData && oldData.packaging) addAction(oldData.packaging, parseNumber(oldData.packagingAmount), `ปรับปรุงบรรจุภัณฑ์ ${finalData.displayId}`);
+                                if(val.packaging) addAction(val.packaging, -parseNumber(val.packagingAmount), `ปรับปรุงบรรจุภัณฑ์ ${finalData.displayId}`);
                             }
 
                             const outputAdded = finalData.stockAdded;
@@ -869,6 +1012,8 @@
             const sales = data.orders.filter(o => o.status === 'สำเร็จ').reduce((s, o) => s + parseNumber(o.amount), 0);
 
             // ... (rest of the code is unchanged) ...
+            
+            // Merged Data Logic for Inventory
             const getInventoryData = () => {
                 const siloItems = data.silos.filter(s => s.rice && s.amount > 0).map(s => ({
                     id: s.id,
@@ -881,6 +1026,75 @@
                     originalSilo: s
                 }));
                 return [...data.inventory, ...siloItems];
+            };
+
+            const getFilteredData = (list) => {
+                if (!list) return [];
+                let res = [...list]; 
+                
+                // If Inventory menu, merge silos
+                if (menu === 'inventory') {
+                    res = getInventoryData();
+                }
+                
+                // --- NEW FILTERS LOGIC ---
+                if (menu === 'orders') {
+                    if (filterDueDate) {
+                        res = res.filter(i => {
+                            if (!i.dueDate) return false;
+                            // Convert Firestore Timestamp or Date object to YYYY-MM-DD
+                            let d = i.dueDate instanceof Timestamp ? i.dueDate.toDate() : new Date(i.dueDate);
+                            const iDateStr = d.toLocaleDateString('en-CA'); // YYYY-MM-DD format (local time)
+                            return iDateStr === filterDueDate;
+                        });
+                    }
+                    if (filterProduct !== 'all') {
+                        res = res.filter(i => {
+                            if (i.items && i.items.length > 0) {
+                                return i.items.some(sub => sub.product === filterProduct);
+                            }
+                            return i.product === filterProduct;
+                        });
+                    }
+                    
+                    // --- SORTING LOGIC FOR ORDERS ---
+                    if (sortOption === 'dueDate_asc') {
+                        res.sort((a, b) => {
+                            // Helper to get timestamp, treat null as max integer for asc sort (put at bottom)
+                            const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : Number.MAX_SAFE_INTEGER;
+                            return getTs(a.dueDate) - getTs(b.dueDate);
+                        });
+                    } else if (sortOption === 'dueDate_desc') {
+                        res.sort((a, b) => {
+                            // Helper to get timestamp, treat null as 0 for desc sort (put at bottom)
+                            const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : 0;
+                            return getTs(b.dueDate) - getTs(a.dueDate);
+                        });
+                    }
+                }
+
+                if (searchTerm) {
+                    const lowerTerm = searchTerm.toLowerCase();
+                    res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
+                }
+                if(filterStatus !== 'all') res = res.filter(i => (i.status || i.type) === filterStatus);
+                if(startDate && endDate) {
+                    const dateKey = menu === 'stockLogs' ? 'createdAt' : (menu === 'production' ? 'startDateTime' : 'date'); 
+                    res = res.filter(i => isDateInRange(i[dateKey] || i.createdAt, startDate, endDate));
+                }
+                if (menu === 'inventory' && filterCategory !== 'all') res = res.filter(i => i.category === filterCategory);
+                if (menu === 'inventory' && sortOption !== 'default') {
+                    res.sort((a, b) => {
+                        if (sortOption === 'code') return (a.code||'').localeCompare(b.code||'', undefined, {numeric: true, sensitivity: 'base'});
+                        if (sortOption === 'location') return (a.location||'').localeCompare(b.location||'', 'th', {numeric: true, sensitivity: 'base'}); 
+                        if (sortOption === 'stock_desc') return parseNumber(b.stock) - parseNumber(a.stock);
+                        if (sortOption === 'name') return a.item.localeCompare(b.item, 'th');
+                        return 0;
+                    });
+                } else if (menu === 'inventory' && sortOption === 'default') {
+                    res.sort((a, b) => (a.code||a.location||'').localeCompare(b.code||b.location||'', undefined, {numeric: true, sensitivity: 'base'}));
+                }
+                return res;
             };
 
             // Global getColumns helper inside component for context access
@@ -940,124 +1154,6 @@
                 }
             };
 
-            const getModalFields = () => {
-                if(modal.type === 'yield') return [
-                    {name:'date',type:'date',label:'วันที่บันทึก'},
-                    {name:'shift',type:'select',label:'กะการทำงาน',options:['กะเช้า (08:00 - 16:00)','กะบ่าย (16:00 - 24:00)','กะดึก (00:00 - 08:00)']},
-                    {name:'headRice',type:'number',label:'น้ำหนักข้าวต้น (กก.)',placeholder:'0'},
-                    {name:'brokenRice',type:'number',label:'น้ำหนักข้าวหัก (กก.)',placeholder:'0'},
-                    {name:'tips',type:'number',label:'น้ำหนักข้าวปลาย/ปลายข้าว (กก.)',placeholder:'0'},
-                    {name:'reject',type:'number',label:'น้ำหนักข้าว Reject/แกลบ/รำ (กก.)',placeholder:'0'}
-                ];
-                
-                if(modal.type === 'orders') return [
-                    {name:'date',type:'date',label:'วันที่สั่งซื้อ'},
-                    {name:'dueDate',type:'date',label:'วันที่กำหนดส่ง'},
-                    {name:'customer',label:'ลูกค้า'},
-                    {name:'details',type:'textarea',label:'รายละเอียดอื่นๆ',placeholder:'ระบุรายละเอียดเพิ่มเติม เช่น สถานที่ส่ง เบอร์โทร (ถ้ามี)'},
-                    {name:'status',type:'select',label:'สถานะ',options:['รอดำเนินการ','กำลังส่ง','สำเร็จ','ยกเลิก']}
-                ];
-                
-                if(modal.type === 'production') return [
-                    {name:'startDateTime',type:'datetime-local',label:'เริ่มผลิต (วัน-เวลา)'},
-                    {name:'endDateTime',type:'datetime-local',label:'สิ้นสุด (วัน-เวลา)'},
-                    {name:'source',type:'select',label:'ใช้วัตถุดิบ (Input)',options:[
-                         ...data.silos.filter(s=>s.rice).map(s=>({value:`SILO-${s.number}: ${s.rice}`, label:`ไซโล #${s.number} ${s.rice} (${parseNumber(s.amount)} กก.)`})),
-                         ...data.inventory.filter(i=>!i.isSilo).map(i=>({value:i.item, label:`${i.item} (${i.stock})`}))
-                    ]},
-                    {name:'inputAmount',type:'number',label:'ปริมาณวัตถุดิบที่ใช้ (กก.)'},
-                    {name:'rice',type:'select',label:'ได้สินค้า (Output)',options:data.inventory.filter(i=>!i.isSilo).map(i=>i.item)},
-                    {name:'amount',type:'number',label:'ปริมาณที่ได้ (กก.)'},
-                    {name:'targetSilo', type:'select', label:'เก็บเข้าที่ (Destination)', options:[
-                        {value: '', label: 'คลังสินค้า (ปกติ)'},
-                        ...data.silos.map(s => ({value: s.id, label: `ไซโล #${s.number} ${s.rice ? `(${s.rice})` : '(ว่าง)'}`}))
-                    ]},
-                    {name:'stage',type:'select',label:'ขั้นตอน',options:['สีข้าว','คัดแยก','บรรจุ']},
-                    {name:'status',type:'select',label:'สถานะ',options:['รอเริ่ม','กำลังผลิต','สำเร็จ']}
-                ];
-                
-                if(modal.type === 'inventory') return [
-                    {name:'code',label:'รหัสสินค้า/ตำแหน่ง',placeholder:'เช่น A1, WA1, SILO-1'},
-                    {name:'item',label:'ชื่อสินค้า'},
-                    {name:'category',type:'select',label:'หมวด',options:['ข้าวสาร','ข้าวเปลือก','ข้าวหัก/ปลาย','Reject/อื่นๆ']},
-                    {name:'stock',type:'number',label:'คงเหลือ'},
-                    {name:'location',label:'ที่เก็บ'}
-                ];
-                
-                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},{name:'location',label:'ที่อยู่'}];
-                
-                if(modal.type === 'silo') return [
-                    {name:'rice', label:`ข้าวในถัง (Silo ${modal.item.number})`, type:'text', placeholder:'เช่น ข้าวเปลือกหอมมะลิ (ว่างไว้ถ้าไม่มี)'},
-                    {name:'amount', label:'ปริมาณปัจจุบัน (กก.)', type:'number'},
-                    {name:'capacity', label:'ความจุถัง (กก.)', type:'number'}
-                ];
-                return [];
-            };
-
-            const getFilteredData = (list) => {
-                if (!list) return [];
-                let res = [...list]; 
-                
-                if (menu === 'inventory') {
-                    res = getInventoryData();
-                }
-                
-                // --- NEW FILTERS LOGIC ---
-                if (menu === 'orders') {
-                    if (filterDueDate) {
-                        res = res.filter(i => {
-                            if (!i.dueDate) return false;
-                            let d = i.dueDate instanceof Timestamp ? i.dueDate.toDate() : new Date(i.dueDate);
-                            const iDateStr = d.toLocaleDateString('en-CA');
-                            return iDateStr === filterDueDate;
-                        });
-                    }
-                    if (filterProduct !== 'all') {
-                        res = res.filter(i => {
-                            if (i.items && i.items.length > 0) {
-                                return i.items.some(sub => sub.product === filterProduct);
-                            }
-                            return i.product === filterProduct;
-                        });
-                    }
-                    
-                    if (sortOption === 'dueDate_asc') {
-                        res.sort((a, b) => {
-                            const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : Number.MAX_SAFE_INTEGER;
-                            return getTs(a.dueDate) - getTs(b.dueDate);
-                        });
-                    } else if (sortOption === 'dueDate_desc') {
-                        res.sort((a, b) => {
-                            const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : 0;
-                            return getTs(b.dueDate) - getTs(a.dueDate);
-                        });
-                    }
-                }
-
-                if (searchTerm) {
-                    const lowerTerm = searchTerm.toLowerCase();
-                    res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
-                }
-                if(filterStatus !== 'all') res = res.filter(i => (i.status || i.type) === filterStatus);
-                if(startDate && endDate) {
-                    const dateKey = menu === 'stockLogs' ? 'createdAt' : (menu === 'production' ? 'date' : 'date'); 
-                    res = res.filter(i => isDateInRange(i[dateKey] || i.createdAt, startDate, endDate));
-                }
-                if (menu === 'inventory' && filterCategory !== 'all') res = res.filter(i => i.category === filterCategory);
-                if (menu === 'inventory' && sortOption !== 'default') {
-                    res.sort((a, b) => {
-                        if (sortOption === 'code') return (a.code||'').localeCompare(b.code||'', undefined, {numeric: true, sensitivity: 'base'});
-                        if (sortOption === 'location') return (a.location||'').localeCompare(b.location||'', 'th', {numeric: true, sensitivity: 'base'}); 
-                        if (sortOption === 'stock_desc') return parseNumber(b.stock) - parseNumber(a.stock);
-                        if (sortOption === 'name') return a.item.localeCompare(b.item, 'th');
-                        return 0;
-                    });
-                } else if (menu === 'inventory' && sortOption === 'default') {
-                    res.sort((a, b) => (a.code||a.location||'').localeCompare(b.code||b.location||'', undefined, {numeric: true, sensitivity: 'base'}));
-                }
-                return res;
-            };
-
             const renderGrid = (list, type) => {
                 return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1067,7 +1163,7 @@
                                 <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between card-hover transition-all group">
                                     <div className="flex justify-between items-start mb-2">
                                         {type==='inventory' && <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-md font-bold">{item.code || '-'}</span>}
-                                        {type==='inventory' && <span className={`text-xs px-2 py-1 rounded-full ${item.category==='ข้าวสาร'?'bg-emerald-100 text-emerald-700':item.category==='ข้าวเปลือก'?'bg-yellow-100 text-yellow-700':'bg-blue-50 text-blue-700'}`}>{item.category}</span>}
+                                        {type==='inventory' && <span className={`text-xs px-2 py-1 rounded-full ${item.category==='ข้าวสาร'?'bg-emerald-100 text-emerald-700':item.category==='ข้าวเปลือก'?'bg-yellow-100 text-yellow-700':item.category==='วัสดุสิ้นเปลือง/บรรจุภัณฑ์'?'bg-pink-100 text-pink-700':'bg-blue-50 text-blue-700'}`}>{item.category}</span>}
                                         {type==='orders' && <span className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
                                         {type==='production' && <span className="bg-purple-50 text-purple-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
                                         {type==='yield' && <span className="bg-orange-50 text-orange-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
@@ -1095,7 +1191,7 @@
                                             <div className="flex items-center gap-2 mt-2">
                                                 <Box size={16} className="text-gray-400"/>
                                                 <span className={`text-2xl font-bold ${isLow ? 'text-red-600':'text-gray-800'}`}>{parseNumber(item.stock).toLocaleString()}</span>
-                                                <span className="text-xs text-gray-500 self-end mb-1">กก.</span>
+                                                <span className="text-xs text-gray-500 self-end mb-1">{item.category === 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์' ? 'หน่วย' : 'กก.'}</span>
                                             </div>
                                         )}
                                         {type==='orders' && (
@@ -1118,6 +1214,20 @@
                                                         ใช้: {item.source} ({parseNumber(item.inputAmount).toLocaleString()})
                                                     </div>
                                                 )}
+                                                {/* Packaging Info */}
+                                                {item.packaging && (
+                                                    <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                                        <ArrowRight size={12} className="text-orange-500"/>
+                                                        แพ็ค: {item.packaging} ({parseNumber(item.packagingAmount).toLocaleString()} ใบ)
+                                                    </div>
+                                                )}
+                                                {/* NEW: Show Pack Size Details */}
+                                                {item.packSize && (
+                                                    <div className="text-xs text-gray-500 ml-4">
+                                                        ↳ ขนาด {item.packSize} กก. x {parseNumber(item.packagingAmount).toLocaleString()} ถุง
+                                                    </div>
+                                                )}
+
                                                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                                                      <ArrowRight size={12} className="text-green-500"/>
                                                      ได้: {item.rice} ({parseNumber(item.amount).toLocaleString()})
@@ -1161,13 +1271,13 @@
             };
 
             const renderTable = (type, cols, list) => (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+                    <div className="overflow-auto max-h-[70vh]">
+                        <table className="w-full text-left text-sm whitespace-nowrap relative">
+                            <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    {cols.map((c,i)=><th key={i} className="px-6 py-4 font-semibold text-gray-500">{c.h}</th>)}
-                                    {menu!=='logs' && <th className="px-6 py-4 text-right font-semibold text-gray-500">จัดการ</th>}
+                                    {cols.map((c,i)=><th key={i} className="px-6 py-4 font-semibold text-gray-500 bg-gray-50">{c.h}</th>)}
+                                    {menu!=='logs' && <th className="px-6 py-4 text-right font-semibold text-gray-500 bg-gray-50">จัดการ</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -1238,9 +1348,11 @@
                                     // Added Textarea logic
                                     :f.type==='textarea'?
                                     <textarea name={f.name} placeholder={f.placeholder} rows="3" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]}></textarea>
-                                    :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={modal.item?.[f.name]||(f.type==='datetime-local' && !modal.item?.[f.name] ? getLocalISOString() : (f.name==='date'?new Date().toISOString().split('T')[0]:''))}/>}
+                                    // Use new formatInputValue helper here!
+                                    :<input name={f.name} type={f.type||'text'} placeholder={f.placeholder} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all" defaultValue={formatInputValue(modal.item?.[f.name], f.type)}/>}
                                 </div>
                             ))}
+                            {/* ... Rest of JSX ... */}
 
                             {/* Multi-Item Order Section */}
                             {modal.type === 'orders' && (
