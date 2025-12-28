@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบบริหารจัดการโรงสีข้าว (Stable)</title>
+    <title>ระบบบริหารจัดการโรงสีข้าว (Customer Type Filter)</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -430,6 +430,8 @@
             // New Filters
             const [filterDueDate, setFilterDueDate] = useState('');
             const [filterProduct, setFilterProduct] = useState('all');
+            const [filterCustomerType, setFilterCustomerType] = useState('all'); // NEW
+            const [hideCompleted, setHideCompleted] = useState(false); 
 
             const [sortOption, setSortOption] = useState('default'); 
             const [startDate, setStartDate] = useState('');
@@ -562,6 +564,8 @@
                 setFilterCategory('all');
                 setFilterDueDate('');
                 setFilterProduct('all');
+                // setFilterCustomerType('all'); // Removed unused state usage logic if any, though state declaration remains harmless
+                setHideCompleted(false); 
                 setSortOption('default');
                 setStartDate('');
                 setEndDate('');
@@ -665,8 +669,6 @@
 
                     // Output Section
                     {name:'rice',type:'select',label:'ได้สินค้า (Output)',options:data.inventory.filter(i=>!i.isSilo && i.category !== 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์').map(i=>i.item)},
-                    
-                    // Modified Label to indicate auto-calc
                     {name:'amount',type:'number',label:'น้ำหนักรวมที่ได้ (กก.) *คำนวณอัตโนมัติถ้าเลือกขนาด'},
                     
                     // Target Destination
@@ -685,7 +687,13 @@
                     {name:'location',label:'ที่เก็บ'}
                 ];
                 
-                if(modal.type === 'customers') return [{name:'name',label:'ชื่อ'},{name:'phone',label:'โทร'},{name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},{name:'location',label:'ที่อยู่'}];
+                if(modal.type === 'customers') return [
+                    {name:'name',label:'ชื่อ'},
+                    {name:'type',type:'select',label:'ประเภท',options:['ทั่วไป','ค้าส่ง','ค้าปลีก','ส่งออก']}, // NEW TYPE
+                    {name:'phone',label:'โทร'},
+                    {name:'region',type:'select',label:'ภูมิภาค',options:['ภาคกลาง','ภาคเหนือ','ภาคตะวันออกเฉียงเหนือ','ภาคตะวันออก','ภาคตะวันตก','ภาคใต้']},
+                    {name:'location',label:'ที่อยู่'}
+                ];
                 
                 if(modal.type === 'silo') return [
                     {name:'rice', label:`ข้าวในถัง (Silo ${modal.item.number})`, type:'text', placeholder:'เช่น ข้าวเปลือกหอมมะลิ (ว่างไว้ถ้าไม่มี)'},
@@ -1056,20 +1064,22 @@
                             return i.product === filterProduct;
                         });
                     }
-                    
+                    // Removed filterCustomerType logic as requested
+
                     // --- SORTING LOGIC FOR ORDERS ---
                     if (sortOption === 'dueDate_asc') {
                         res.sort((a, b) => {
-                            // Helper to get timestamp, treat null as max integer for asc sort (put at bottom)
                             const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : Number.MAX_SAFE_INTEGER;
                             return getTs(a.dueDate) - getTs(b.dueDate);
                         });
                     } else if (sortOption === 'dueDate_desc') {
                         res.sort((a, b) => {
-                            // Helper to get timestamp, treat null as 0 for desc sort (put at bottom)
                             const getTs = (d) => d ? (d instanceof Timestamp ? d.toMillis() : new Date(d).getTime()) : 0;
                             return getTs(b.dueDate) - getTs(a.dueDate);
                         });
+                    } else if (sortOption === 'customer_asc') {
+                        // NEW: Sort by Customer Name (Thai locale aware)
+                        res.sort((a, b) => (a.customer || '').localeCompare(b.customer || '', 'th'));
                     }
                 }
 
@@ -1141,7 +1151,7 @@
                         {h:'ได้ผลผลิต',k:'rice',render:r=>r.rice ? <div className="text-xs"><div className="font-medium text-blue-700">{r.rice}</div><div className="text-blue-500">+{parseNumber(r.amount).toLocaleString()} กก.</div></div> : '-'},
                         {h:'สถานะ',k:'status', render:r=><span className={`px-2 py-1 rounded-full text-xs font-semibold ${r.status==='สำเร็จ'?'bg-green-100 text-green-700':'bg-blue-50 text-blue-700'}`}>{r.status}</span>}
                     ];
-                    case 'customers': return [{h:'ชื่อ',k:'name', render:r=><span className="font-medium text-gray-800">{r.name}</span>},{h:'โทร',k:'phone', render:r=><span className="text-gray-600">{r.phone}</span>},{h:'ภูมิภาค',k:'region', render:r=><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.region || '-'}</span>},{h:'ที่อยู่',k:'location', render:r=><span className="text-gray-500 truncate max-w-xs block">{r.location}</span>}];
+                    case 'customers': return [{h:'ชื่อ',k:'name', render:r=><span className="font-medium text-gray-800">{r.name}</span>},{h:'ประเภท',k:'type', render:r=><span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded">{r.type || 'ทั่วไป'}</span>},{h:'โทร',k:'phone', render:r=><span className="text-gray-600">{r.phone}</span>},{h:'ภูมิภาค',k:'region', render:r=><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.region || '-'}</span>},{h:'ที่อยู่',k:'location', render:r=><span className="text-gray-500 truncate max-w-xs block">{r.location}</span>}];
                     
                     // Default = Logs
                     default: return [
@@ -1163,7 +1173,7 @@
                                 <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between card-hover transition-all group">
                                     <div className="flex justify-between items-start mb-2">
                                         {type==='inventory' && <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-md font-bold">{item.code || '-'}</span>}
-                                        {type==='inventory' && <span className={`text-xs px-2 py-1 rounded-full ${item.category==='ข้าวสาร'?'bg-emerald-100 text-emerald-700':item.category==='ข้าวเปลือก'?'bg-yellow-100 text-yellow-700':item.category==='วัสดุสิ้นเปลือง/บรรจุภัณฑ์'?'bg-pink-100 text-pink-700':'bg-blue-50 text-blue-700'}`}>{item.category}</span>}
+                                        {type==='inventory' && <span className={`text-xs px-2 py-1 rounded-full ${item.category==='ข้าวสาร'?'bg-emerald-100 text-emerald-700':item.category==='ข้าวเปลือก'?'bg-yellow-100 text-yellow-700':'bg-blue-50 text-blue-700'}`}>{item.category}</span>}
                                         {type==='orders' && <span className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
                                         {type==='production' && <span className="bg-purple-50 text-purple-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
                                         {type==='yield' && <span className="bg-orange-50 text-orange-700 text-xs px-2 py-1 rounded font-bold">{item.displayId}</span>}
@@ -1191,7 +1201,7 @@
                                             <div className="flex items-center gap-2 mt-2">
                                                 <Box size={16} className="text-gray-400"/>
                                                 <span className={`text-2xl font-bold ${isLow ? 'text-red-600':'text-gray-800'}`}>{parseNumber(item.stock).toLocaleString()}</span>
-                                                <span className="text-xs text-gray-500 self-end mb-1">{item.category === 'วัสดุสิ้นเปลือง/บรรจุภัณฑ์' ? 'หน่วย' : 'กก.'}</span>
+                                                <span className="text-xs text-gray-500 self-end mb-1">กก.</span>
                                             </div>
                                         )}
                                         {type==='orders' && (
@@ -1330,8 +1340,13 @@
                 </div>
             );
 
+            // ... (handleSave logic is here and correctly placed)
+
             return (
                 <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
+                    {/* ... (Existing JSX structure) ... */}
+                    {/* Make sure renderTable is called inside the JSX */}
+                    
                     {toast && <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)} />}
                     <Modal isOpen={modal.open} onClose={()=>setModal({open:false})} title={modal.item?(modal.type==='silo'?'แก้ไขสถานะไซโล':'แก้ไขรายการ'):'เพิ่มรายการใหม่'} size={modal.type === 'orders' ? 'lg' : 'md'}>
                         <form onSubmit={handleSave} className="space-y-4">
@@ -1633,6 +1648,7 @@
                                                     {/* NEW: Sorting Dropdown for Orders */}
                                                     <select value={sortOption} onChange={e=>setSortOption(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
                                                         <option value="default">เรียงตาม: ล่าสุด (วันที่สั่ง)</option>
+                                                        <option value="customer_asc">👤 ลูกค้า (ก-ฮ)</option>
                                                         <option value="dueDate_asc">📅 กำหนดส่ง (เร็ว-ช้า)</option>
                                                         <option value="dueDate_desc">📅 กำหนดส่ง (ช้า-เร็ว)</option>
                                                     </select>
@@ -1647,6 +1663,9 @@
                                                             className="bg-gray-50 border-0 rounded-lg text-sm py-2 px-2 focus:ring-2 focus:ring-primary-100 text-gray-600 w-32"
                                                         />
                                                     </div>
+                                                    
+                                                    {/* Removed Customer Type Filter as requested */}
+
                                                     <div className="flex items-center gap-1">
                                                         <select 
                                                             value={filterProduct} 
@@ -1674,6 +1693,8 @@
                                                 setFilterCategory('all');
                                                 setFilterDueDate('');
                                                 setFilterProduct('all');
+                                                setFilterCustomerType('all');
+                                                setHideCompleted(false); // Reset hide completed
                                                 setSortOption('default');
                                                 setStartDate('');
                                                 setEndDate('');
