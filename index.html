@@ -1087,7 +1087,17 @@
                     const lowerTerm = searchTerm.toLowerCase();
                     res = res.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(lowerTerm)));
                 }
-                if(filterStatus !== 'all') res = res.filter(i => (i.status || i.type) === filterStatus);
+                
+                // FIX: Custom filter logic for Orders "In Progress"
+                if(filterStatus !== 'all') {
+                    if (menu === 'orders' && filterStatus === 'in_progress') {
+                        // รวม "รอดำเนินการ" และ "กำลังส่ง" เป็น "กำลังดำเนินการ"
+                        res = res.filter(i => ['รอดำเนินการ', 'กำลังส่ง'].includes(i.status));
+                    } else {
+                        res = res.filter(i => (i.status || i.type) === filterStatus);
+                    }
+                }
+
                 if(startDate && endDate) {
                     const dateKey = menu === 'stockLogs' ? 'createdAt' : (menu === 'production' ? 'startDateTime' : 'date'); 
                     res = res.filter(i => isDateInRange(i[dateKey] || i.createdAt, startDate, endDate));
@@ -1633,10 +1643,20 @@
                                                 </>
                                             )}
 
-                                            {['orders', 'production'].includes(menu) && (
+                                            {/* FIX: Specific Filter for Orders */}
+                                            {menu === 'orders' && (
                                                 <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
                                                     <option value="all">สถานะทั้งหมด</option>
-                                                    {['สำเร็จ','กำลังส่ง','กำลังผลิต','รอเริ่ม','IN','OUT'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                    <option value="in_progress">กำลังดำเนินการ (รอ+ส่ง)</option>
+                                                    <option value="สำเร็จ">สำเร็จ</option>
+                                                </select>
+                                            )}
+
+                                            {/* FIX: Specific Filter for Production */}
+                                            {menu === 'production' && (
+                                                <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="bg-gray-50 border-0 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-2 focus:ring-primary-100 font-medium text-gray-600">
+                                                    <option value="all">สถานะทั้งหมด</option>
+                                                    {['รอเริ่ม','กำลังผลิต','สำเร็จ'].map(s=><option key={s} value={s}>{s}</option>)}
                                                 </select>
                                             )}
 
